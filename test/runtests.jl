@@ -4,7 +4,11 @@ using JuMP
 using Ipopt
 using Test
 
-function build_test_system(; l13_max_flow::Float64 = 5.0)
+function build_test_system(;
+    l13_max_flow::Float64 = 5.0,
+    l12_min_tap_ratio::Float64 = 1.0,
+    l12_max_tap_ratio::Float64 = 1.0,
+)
     input = PowerSystemData.Input()
 
     add_bus!(input; name = "Slack", type = BusType.Slack, voltage = 1.0, min_voltage = 0.9, max_voltage = 1.1)
@@ -19,6 +23,8 @@ function build_test_system(; l13_max_flow::Float64 = 5.0)
         resistance = 0.01,
         reactance = 0.1,
         max_flow = 5.0,
+        min_tap_ratio = l12_min_tap_ratio,
+        max_tap_ratio = l12_max_tap_ratio,
     )
     add_branch!(
         input;
@@ -93,6 +99,21 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         @test all(abs.(sol.active_power_generation .- P_star) .< 0.1)
     end
 
+    @testset "ACOPF with tap optimization" begin
+        input = build_test_system(; l12_min_tap_ratio = 0.9, l12_max_tap_ratio = 1.1)
+        sol = run_acopf(input, ACOPFTapFormulation())
+
+        model = JuMP.Model(Ipopt.Optimizer)
+        JuMP.set_silent(model)
+        PowerFlow.ac_model!(input, model, ACOPFTapFormulation(), PowerFlow.ModelBuild)
+        JuMP.optimize!(model)
+
+        tap = JuMP.value(model[:tap][1])
+
+        @test sol.termination_status == SOLVED
+        @test 0.9 - 1e-6 <= tap <= 1.1 + 1e-6
+    end
+
     @testset "ACOPF respects branch thermal limits" begin
         input = build_test_system(; l13_max_flow = 0.3)
         sol = run_acopf(input)
@@ -102,15 +123,16 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         PowerFlow.ac_model!(input, model, ACOPFFormulation(), PowerFlow.ModelBuild)
         JuMP.optimize!(model)
 
-        Pkm, Qkm = model[:Pkm], model[:Qkm]
-        S_from = sqrt(JuMP.value(Pkm[3, :from])^2 + JuMP.value(Qkm[3, :from])^2)
-        S_to = sqrt(JuMP.value(Pkm[3, :to])^2 + JuMP.value(Qkm[3, :to])^2)
+        P_inj_from, P_inj_to = model[:P_inj_from], model[:P_inj_to]
+        Q_inj_from, Q_inj_to = model[:Q_inj_from], model[:Q_inj_to]
+        S_from = sqrt(JuMP.value(P_inj_from[3])^2 + JuMP.value(Q_inj_from[3])^2)
+        S_to = sqrt(JuMP.value(P_inj_to[3])^2 + JuMP.value(Q_inj_to[3])^2)
 
         @test sol.termination_status == SOLVED
         @test S_from <= 0.3 + 1e-4
         @test S_to <= 0.3 + 1e-4
-        # Pkm/Qkm are registered for every branch, not just rated ones, so they can be reused elsewhere
-        @test size(Pkm) == (3, 2)
+        # P_inj/Q_inj are registered for every branch, not just rated ones, so they can be reused elsewhere
+        @test length(P_inj_from) == 3
     end
 
     @testset "ACPF feasibility matches standard NonlinearSolve solve" begin
@@ -134,8 +156,8 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         input = build_test_system(; l13_max_flow = 0.3)
         sol = run_acpf(input, ACPFFeasibilityFormulation())
 
-        P_from = PowerFlow.branch_active_power_flow(input, 3, sol.voltage, sol.voltage_angle, :from)
-        Q_from = PowerFlow.branch_reactive_power_flow(input, 3, sol.voltage, sol.voltage_angle, :from)
+        P_from = PowerFlow.active_injection(input, 3, sol.voltage, sol.voltage_angle, :from)
+        Q_from = PowerFlow.reactive_injection(input, 3, sol.voltage, sol.voltage_angle, :from)
         S_from = sqrt(P_from^2 + Q_from^2)
 
         @test sol.termination_status == SOLVED

@@ -1,9 +1,11 @@
 function ac_model!(args...)
     voltage_variables!(args...)
     generator_variables!(args...)
+    tap_variables!(args...)
+    branch_injections!(args...)
+    branch_flow_limit!(args...)
     power_balance!(args...)
     voltage_setpoint!(args...)
-    branch_flow_limit!(args...)
     objective_function!(args...)
     return nothing
 end

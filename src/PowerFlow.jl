@@ -28,7 +28,11 @@ include("dc/dcopf.jl")
 include("dc/dcpf.jl")
 
 export run_acopf, run_acpf, run_dcopf, run_dcpf
-export ACOPFFormulation, ACOPFMinRedispatchFormulation, ACPFFeasibilityFormulation, ACPFPmisVmisFormulation,
+export ACOPFFormulation,
+    ACOPFMinRedispatchFormulation,
+    ACOPFTapFormulation,
+    ACPFFeasibilityFormulation,
+    ACPFPmisVmisFormulation,
     ACPFFormulation
 export ACSolution, DCSolution
 

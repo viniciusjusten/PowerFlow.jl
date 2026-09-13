@@ -3,7 +3,9 @@ function voltage_variables!(input, model, ::ACFormulation, ::Type{ModelBuild})
 
     @variable(
         model,
-        bus_min_voltage(input, i) <= V[i in 1:n] <= bus_max_voltage(input, i),
+        V[i in 1:n],
+        lower_bound = bus_min_voltage(input, i),
+        upper_bound = bus_max_voltage(input, i),
         start = bus_voltage(input, i),
     )
     @variable(model, angle[i in 1:n], start = bus_voltage_angle(input, i))
@@ -23,12 +25,16 @@ function generator_variables!(input, model, formulation::ACFormulation, ::Type{M
 
     @variable(
         model,
-        generator_min_active_power(input, g) <= Pg[g in 1:n_g] <= generator_max_active_power(input, g),
+        Pg[g in 1:n_g],
+        lower_bound = generator_min_active_power(input, g),
+        upper_bound = generator_max_active_power(input, g),
         start = generator_active_power(input, g),
     )
     @variable(
         model,
-        generator_min_reactive_power(input, g) <= Qg[g in 1:n_g] <= generator_max_reactive_power(input, g),
+        Qg[g in 1:n_g],
+        lower_bound = generator_min_reactive_power(input, g),
+        upper_bound = generator_max_reactive_power(input, g),
         start = generator_reactive_power(input, g),
     )
 
@@ -47,4 +53,44 @@ function generator_variables!(input, model, formulation::ACFormulation, ::Type{M
     end
 
     return nothing
+end
+
+function tap_variables!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
+    if !optimizes_tap(formulation)
+        return nothing
+    end
+
+    n_branches = num_branches(input)
+    @variable(
+        model,
+        tap_var[
+            k in 1:n_branches;
+            branch_is_transformer(input, k) && branch_min_tap_ratio(input, k) != branch_max_tap_ratio(input, k)
+        ],
+        lower_bound = branch_min_tap_ratio(input, k),
+        upper_bound = branch_max_tap_ratio(input, k),
+        start = branch_tap_ratio(input, k),
+    )
+
+    @expression(
+        model,
+        tap[k in 1:n_branches],
+        if branch_is_transformer(input, k) && branch_min_tap_ratio(input, k) != branch_max_tap_ratio(input, k)
+            tap_var[k]
+        else
+            branch_tap_ratio(input, k)
+        end,
+    )
+
+    return nothing
+end
+
+# the tap ratio to use for branch k: a JuMP variable when the formulation optimizes tap, otherwise
+# the branch's fixed data
+function branch_tap(input, model, formulation::ACFormulation, k::Int)
+    if optimizes_tap(formulation)
+        return model[:tap][k]
+    else
+        return branch_tap_ratio(input, k)
+    end
 end

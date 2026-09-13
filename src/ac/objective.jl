@@ -1,4 +1,4 @@
-function objective_function!(input, model, ::ACOPFFormulation, ::Type{ModelBuild})
+function objective_function!(input, model, ::Union{ACOPFFormulation, ACOPFTapFormulation}, ::Type{ModelBuild})
     Pg = model[:Pg]
     @objective(model, Min, sum(generator_cost(input, g) * Pg[g] for g in 1:num_generators(input)))
     return nothing

@@ -1,8 +1,6 @@
-# TODO: Ybus (and therefore G, B here) already bakes in each branch's tap_ratio/phase_shift as a
-# fixed constant from the data. That's fine as long as taps are given, fixed inputs. If we ever want
-# to optimize the tap ratio itself (e.g. OLTC control), these formulas won't work as-is. Ybus would
-# need to be rebuilt from a JuMP tap variable inside the model instead of being precomputed once from
-# PowerSystemData. Revisit in a future discussion.
+# used by the NonlinearSolve.jl-based standard power flow (acpf_standard.jl), which always takes tap
+# as fixed data baked into a precomputed Ybus. The JuMP model path (power_balance.jl) instead uses
+# active_injection/reactive_injection below, which support tap as either fixed data or a JuMP variable.
 function active_power_calc(i::Int, V, angle, G, B)
     n = length(V)
     return V[i] * sum(V[k] * (G[i, k] * cos(angle[i] - angle[k]) + B[i, k] * sin(angle[i] - angle[k])) for k in 1:n)
@@ -13,30 +11,37 @@ function reactive_power_calc(i::Int, V, angle, G, B)
     return V[i] * sum(V[k] * (G[i, k] * sin(angle[i] - angle[k]) - B[i, k] * cos(angle[i] - angle[k])) for k in 1:n)
 end
 
-# per-branch admittance terms feeding the branch flow equations below — kept separate from the
-# aggregate Ybus so branch flows are correct even with parallel branches between the same bus pair
-function branch_flow_terms(input, k::Int)
+# per-branch admittance terms shared by active_injection/reactive_injection at both sides of a branch —
+# computed once per branch (not once per call) since `y = 1/(r + im*x)` would otherwise be redone
+# redundantly for every one of the 4 (side, active/reactive) combinations that need it.
+# `tap` is taken as an argument (rather than read from `input`) so it can be either the branch's fixed
+# tap_ratio data or a JuMP tap variable, depending on the formulation.
+function branch_admittance_terms(input, k::Int, tap)
     y = 1 / (branch_resistance(input, k) + im * branch_reactance(input, k))
-    tap = branch_tap_ratio(input, k)
+    g, b = real(y), imag(y)
     shift = branch_phase_shift(input, k)
+    cos_shift, sin_shift = cos(shift), sin(shift)
     g_sh = branch_shunt_conductance(input, k)
     b_sh = branch_shunt_susceptance(input, k)
 
-    y_from = y * tap * cis(shift)
-    y_to = y * tap * cis(-shift)
+    G_from = g * tap^2 + g_sh
+    B_from = b * tap^2 + b_sh
+    G_to = g + g_sh
+    B_to = b + b_sh
 
-    G_from = real(y) * tap^2 + g_sh
-    B_from = imag(y) * tap^2 + b_sh
-    G_to = real(y) + g_sh
-    B_to = imag(y) + b_sh
+    # real/imag parts of y * tap * cis(shift) and y * tap * cis(-shift), expanded term-by-term to
+    # avoid Complex arithmetic over `tap` (which breaks when `tap` is a JuMP variable/expression)
+    Gt_from = tap * (g * cos_shift - b * sin_shift)
+    Bt_from = tap * (g * sin_shift + b * cos_shift)
+    Gt_to = tap * (g * cos_shift + b * sin_shift)
+    Bt_to = tap * (b * cos_shift - g * sin_shift)
 
-    return (G_from, B_from, real(y_from), imag(y_from)), (G_to, B_to, real(y_to), imag(y_to))
+    return (G_from, B_from, Gt_from, Bt_from), (G_to, B_to, Gt_to, Bt_to)
 end
 
-function branch_active_power_flow(input, k::Int, V, angle, side::Symbol)
-    from = branch_from_bus_idx(input, k)
-    to = branch_to_bus_idx(input, k)
-    (G_from, _, Gt_from, Bt_from), (G_to, _, Gt_to, Bt_to) = branch_flow_terms(input, k)
+# active power injected into a branch at `side`, from precomputed branch_admittance_terms
+function active_injection(V, angle, from::Int, to::Int, side::Symbol, terms)
+    (G_from, _, Gt_from, Bt_from), (G_to, _, Gt_to, Bt_to) = terms
 
     if side == :from
         return V[from]^2 * G_from -
@@ -47,10 +52,9 @@ function branch_active_power_flow(input, k::Int, V, angle, side::Symbol)
     end
 end
 
-function branch_reactive_power_flow(input, k::Int, V, angle, side::Symbol)
-    from = branch_from_bus_idx(input, k)
-    to = branch_to_bus_idx(input, k)
-    (_, B_from, Gt_from, Bt_from), (_, B_to, Gt_to, Bt_to) = branch_flow_terms(input, k)
+# reactive power injected into a branch at `side`, from precomputed branch_admittance_terms
+function reactive_injection(V, angle, from::Int, to::Int, side::Symbol, terms)
+    (_, B_from, Gt_from, Bt_from), (_, B_to, Gt_to, Bt_to) = terms
 
     if side == :from
         return -V[from]^2 * B_from -
@@ -59,6 +63,18 @@ function branch_reactive_power_flow(input, k::Int, V, angle, side::Symbol)
         return -V[to]^2 * B_to -
                V[to] * V[from] * (Gt_to * sin(angle[to] - angle[from]) - Bt_to * cos(angle[to] - angle[from]))
     end
+end
+
+# convenience forms that compute branch_admittance_terms internally, for standalone/one-off use
+# (e.g. tests) where reusing terms across multiple calls doesn't matter
+function active_injection(input, k::Int, V, angle, side::Symbol, tap = branch_tap_ratio(input, k))
+    terms = branch_admittance_terms(input, k, tap)
+    return active_injection(V, angle, branch_from_bus_idx(input, k), branch_to_bus_idx(input, k), side, terms)
+end
+
+function reactive_injection(input, k::Int, V, angle, side::Symbol, tap = branch_tap_ratio(input, k))
+    terms = branch_admittance_terms(input, k, tap)
+    return reactive_injection(V, angle, branch_from_bus_idx(input, k), branch_to_bus_idx(input, k), side, terms)
 end
 
 function bus_active_power_injection(input, i::Int)
