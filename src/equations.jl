@@ -24,17 +24,19 @@ function branch_admittance_terms(input, k::Int, tap)
     g_sh = branch_shunt_conductance(input, k)
     b_sh = branch_shunt_susceptance(input, k)
 
-    G_from = g * tap^2 + g_sh
-    B_from = b * tap^2 + b_sh
+    # Matpower/PowerModels convention (see Branch.tap_ratio's docstring): tap divides the
+    # from-bus side, the to-bus side is unscaled.
+    G_from = g / tap^2 + g_sh
+    B_from = b / tap^2 + b_sh
     G_to = g + g_sh
     B_to = b + b_sh
 
-    # real/imag parts of y * tap * cis(shift) and y * tap * cis(-shift), expanded term-by-term to
+    # real/imag parts of y / tap * cis(shift) and y / tap * cis(-shift), expanded term-by-term to
     # avoid Complex arithmetic over `tap` (which breaks when `tap` is a JuMP variable/expression)
-    Gt_from = tap * (g * cos_shift - b * sin_shift)
-    Bt_from = tap * (g * sin_shift + b * cos_shift)
-    Gt_to = tap * (g * cos_shift + b * sin_shift)
-    Bt_to = tap * (b * cos_shift - g * sin_shift)
+    Gt_from = (g * cos_shift - b * sin_shift) / tap
+    Bt_from = (g * sin_shift + b * cos_shift) / tap
+    Gt_to = (g * cos_shift + b * sin_shift) / tap
+    Bt_to = (b * cos_shift - g * sin_shift) / tap
 
     return (G_from, B_from, Gt_from, Bt_from), (G_to, B_to, Gt_to, Bt_to)
 end

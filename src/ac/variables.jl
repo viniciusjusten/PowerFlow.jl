@@ -28,14 +28,14 @@ function generator_variables!(input, model, formulation::ACFormulation, ::Type{M
         Pg[g in 1:n_g],
         lower_bound = generator_min_active_power(input, g),
         upper_bound = generator_max_active_power(input, g),
-        start = generator_active_power(input, g),
+        # start = generator_active_power(input, g),
     )
     @variable(
         model,
         Qg[g in 1:n_g],
         lower_bound = generator_min_reactive_power(input, g),
         upper_bound = generator_max_reactive_power(input, g),
-        start = generator_reactive_power(input, g),
+        # start = generator_reactive_power(input, g),
     )
 
     for g in 1:n_g
@@ -69,7 +69,7 @@ function tap_variables!(input, model, formulation::ACFormulation, ::Type{ModelBu
         ],
         lower_bound = branch_min_tap_ratio(input, k),
         upper_bound = branch_max_tap_ratio(input, k),
-        start = branch_tap_ratio(input, k),
+        # start = branch_tap_ratio(input, k),
     )
 
     @expression(
@@ -107,21 +107,21 @@ function dcline_variables!(input, model, formulation::ACFormulation, ::Type{Mode
         Pf[k in 1:n_dc],
         lower_bound = -dcline_max_flow_to_from(input, k),
         upper_bound = dcline_max_flow_from_to(input, k),
-        start = dcline_active_power(input, k),
+        # start = dcline_active_power(input, k),
     )
     @variable(
         model,
         Qf[k in 1:n_dc],
         lower_bound = dcline_min_reactive_power_from(input, k),
         upper_bound = dcline_max_reactive_power_from(input, k),
-        start = dcline_reactive_power_from(input, k),
+        # start = dcline_reactive_power_from(input, k),
     )
     @variable(
         model,
         Qt[k in 1:n_dc],
         lower_bound = dcline_min_reactive_power_to(input, k),
         upper_bound = dcline_max_reactive_power_to(input, k),
-        start = dcline_reactive_power_to(input, k),
+        # start = dcline_reactive_power_to(input, k),
     )
 
     @expression(
