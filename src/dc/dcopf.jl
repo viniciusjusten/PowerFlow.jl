@@ -1,6 +1,7 @@
 function dc_model!(args...)
     angle_variables!(args...)
     generator_variables!(args...)
+    dcline_variables!(args...)
     power_balance!(args...)
     objective_function!(args...)
     return nothing

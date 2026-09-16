@@ -94,3 +94,49 @@ function branch_tap(input, model, formulation::ACFormulation, k::Int)
         return branch_tap_ratio(input, k)
     end
 end
+
+# Pf is the flow leaving the from-bus terminal (before losses); Pt is what arrives at the to-bus
+# terminal, after the linear loss model (constant + proportional to Pf) is applied. Qf/Qt are
+# independent reactive power injections at each terminal, bounded by each terminal's own limits.
+function dcline_variables!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
+    n_dc = num_dclines(input)
+    redispatch = allows_generation_redispatch(formulation)
+
+    @variable(
+        model,
+        Pf[k in 1:n_dc],
+        lower_bound = -dcline_max_flow_to_from(input, k),
+        upper_bound = dcline_max_flow_from_to(input, k),
+        start = dcline_active_power(input, k),
+    )
+    @variable(
+        model,
+        Qf[k in 1:n_dc],
+        lower_bound = dcline_min_reactive_power_from(input, k),
+        upper_bound = dcline_max_reactive_power_from(input, k),
+        start = dcline_reactive_power_from(input, k),
+    )
+    @variable(
+        model,
+        Qt[k in 1:n_dc],
+        lower_bound = dcline_min_reactive_power_to(input, k),
+        upper_bound = dcline_max_reactive_power_to(input, k),
+        start = dcline_reactive_power_to(input, k),
+    )
+
+    @expression(
+        model,
+        Pt[k in 1:n_dc],
+        Pf[k] - (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf[k])
+    )
+
+    if !redispatch
+        for k in 1:n_dc
+            JuMP.fix(Pf[k], dcline_active_power(input, k); force = true)
+            JuMP.fix(Qf[k], dcline_reactive_power_from(input, k); force = true)
+            JuMP.fix(Qt[k], dcline_reactive_power_to(input, k); force = true)
+        end
+    end
+
+    return nothing
+end

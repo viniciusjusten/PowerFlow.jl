@@ -89,6 +89,14 @@ function bus_active_power_injection(input, i::Int)
             total -= load_active_power(input, l)
         end
     end
+    for k in 1:num_dclines(input)
+        if dcline_from_bus_idx(input, k) == i
+            total -= dcline_active_power(input, k)
+        end
+        if dcline_to_bus_idx(input, k) == i
+            total += dcline_to_bus_active_power(input, k)
+        end
+    end
     return total
 end
 
@@ -104,7 +112,22 @@ function bus_reactive_power_injection(input, i::Int)
             total -= load_reactive_power(input, l)
         end
     end
+    for k in 1:num_dclines(input)
+        if dcline_from_bus_idx(input, k) == i
+            total += dcline_reactive_power_from(input, k)
+        end
+        if dcline_to_bus_idx(input, k) == i
+            total += dcline_reactive_power_to(input, k)
+        end
+    end
     return total
+end
+
+# active power arriving at the to-bus terminal of a DC line, after the linear loss model
+# (constant + proportional to the from-bus flow) is applied to the scheduled from-bus flow
+function dcline_to_bus_active_power(input, k::Int)
+    Pf = dcline_active_power(input, k)
+    return Pf - (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf)
 end
 
 # textbook DC power flow approximation: resistance, shunt elements, tap ratio and phase shift are ignored

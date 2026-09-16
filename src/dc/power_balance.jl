@@ -3,9 +3,11 @@ function power_balance!(input, model, ::Type{ModelBuild})
     n_g = num_generators(input)
     n_l = num_loads(input)
     n_branches = num_branches(input)
+    n_dc = num_dclines(input)
 
     B = dc_susceptance_matrix(input)
     angle, Pg = model[:angle], model[:Pg]
+    Pf, Pt = model[:Pf], model[:Pt]
 
     @expression(
         model,
@@ -17,7 +19,9 @@ function power_balance!(input, model, ::Type{ModelBuild})
         model,
         active_power_balance[i in 1:n],
         sum(Pg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
-        sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) ==
+        sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) -
+        sum(Pf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
+        sum(Pt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) ==
         sum(B[i, j] * (angle[i] - angle[j]) for j in 1:n if j != i)
     )
 

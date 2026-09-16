@@ -23,3 +23,25 @@ function generator_variables!(input, model, ::Type{ModelBuild})
 
     return nothing
 end
+
+# reactive power has no meaning in this linearized (textbook DC) formulation, so only the DC
+# line's active-power flow and linear loss model (constant + proportional to Pf) are represented
+function dcline_variables!(input, model, ::Type{ModelBuild})
+    n_dc = num_dclines(input)
+
+    @variable(
+        model,
+        Pf[k in 1:n_dc],
+        lower_bound = -dcline_max_flow_to_from(input, k),
+        upper_bound = dcline_max_flow_from_to(input, k),
+        start = dcline_active_power(input, k),
+    )
+
+    @expression(
+        model,
+        Pt[k in 1:n_dc],
+        Pf[k] - (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf[k])
+    )
+
+    return nothing
+end

@@ -2,6 +2,7 @@ using PowerSystemData
 using PowerFlow
 using JuMP
 using Ipopt
+using HiGHS
 using Test
 
 function build_test_system(;
@@ -74,6 +75,27 @@ function build_test_system(;
 
     add_load!(input; name = "D3", bus_idx = 3, active_power = 0.9, reactive_power = 0.3)
 
+    return input
+end
+
+function add_test_dcline!(input)
+    add_dcline!(
+        input;
+        name = "DC13",
+        from_bus_idx = 1,
+        to_bus_idx = 3,
+        active_power = 0.2,
+        reactive_power_from = 0.05,
+        reactive_power_to = -0.03,
+        constant_loss = 0.01,
+        loss_coefficient = 0.02,
+        max_flow_from_to = 0.3,
+        max_flow_to_from = 0.25,
+        min_reactive_power_from = -0.1,
+        max_reactive_power_from = 0.1,
+        min_reactive_power_to = -0.1,
+        max_reactive_power_to = 0.1,
+    )
     return input
 end
 
@@ -191,5 +213,69 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
 
         @test all(abs.(residual) .< 1e-8)
         @test sol.active_power_generation == [generator_active_power(input, g) for g in 1:num_generators(input)]
+    end
+
+    @testset "ACOPF with DC line" begin
+        input = add_test_dcline!(build_test_system())
+        sol = run_acopf(input)
+
+        model = JuMP.Model(Ipopt.Optimizer)
+        JuMP.set_silent(model)
+        PowerFlow.ac_model!(input, model, ACOPFFormulation(), PowerFlow.ModelBuild)
+        JuMP.optimize!(model)
+
+        Pf, Pt = JuMP.value(model[:Pf][1]), JuMP.value(model[:Pt][1])
+        Qf, Qt = JuMP.value(model[:Qf][1]), JuMP.value(model[:Qt][1])
+
+        @test sol.termination_status == SOLVED
+        @test Pt ≈ Pf * (1 - dcline_loss_coefficient(input, 1)) - dcline_constant_loss(input, 1) atol = 1e-6
+        @test -dcline_max_flow_to_from(input, 1) - 1e-6 <= Pf <= dcline_max_flow_from_to(input, 1) + 1e-6
+        @test dcline_min_reactive_power_from(input, 1) - 1e-6 <= Qf <= dcline_max_reactive_power_from(input, 1) + 1e-6
+        @test dcline_min_reactive_power_to(input, 1) - 1e-6 <= Qt <= dcline_max_reactive_power_to(input, 1) + 1e-6
+    end
+
+    @testset "ACPF feasibility fixes the DC line to its scheduled data" begin
+        input = add_test_dcline!(build_test_system())
+
+        model = JuMP.Model(Ipopt.Optimizer)
+        JuMP.set_silent(model)
+        PowerFlow.ac_model!(input, model, ACPFFeasibilityFormulation(), PowerFlow.ModelBuild)
+        JuMP.optimize!(model)
+
+        @test JuMP.termination_status(model) == SOLVED
+        @test JuMP.value(model[:Pf][1]) ≈ dcline_active_power(input, 1) atol = 1e-6
+        @test JuMP.value(model[:Qf][1]) ≈ dcline_reactive_power_from(input, 1) atol = 1e-6
+        @test JuMP.value(model[:Qt][1]) ≈ dcline_reactive_power_to(input, 1) atol = 1e-6
+    end
+
+    @testset "DCOPF with DC line" begin
+        input = add_test_dcline!(build_test_system())
+        sol = run_dcopf(input)
+
+        model = JuMP.Model(HiGHS.Optimizer)
+        JuMP.set_silent(model)
+        PowerFlow.dc_model!(input, model, PowerFlow.ModelBuild)
+        JuMP.optimize!(model)
+
+        Pf, Pt = JuMP.value(model[:Pf][1]), JuMP.value(model[:Pt][1])
+
+        @test sol.termination_status == JuMP.MOI.OPTIMAL
+        @test Pt ≈ Pf * (1 - dcline_loss_coefficient(input, 1)) - dcline_constant_loss(input, 1) atol = 1e-6
+        @test -dcline_max_flow_to_from(input, 1) - 1e-6 <= Pf <= dcline_max_flow_from_to(input, 1) + 1e-6
+    end
+
+    @testset "DCPF picks up the DC line's scheduled flow" begin
+        input = add_test_dcline!(build_test_system())
+        sol = run_dcpf(input)
+
+        B = PowerFlow.dc_susceptance_matrix(input)
+        non_slack = [2, 3]
+        P = [PowerFlow.bus_active_power_injection(input, i) for i in non_slack]
+        residual = B[non_slack, non_slack] * sol.voltage_angle[non_slack] - P
+
+        @test all(abs.(residual) .< 1e-8)
+        @test PowerFlow.dcline_to_bus_active_power(input, 1) ≈
+              dcline_active_power(input, 1) * (1 - dcline_loss_coefficient(input, 1)) -
+              dcline_constant_loss(input, 1) atol = 1e-10
     end
 end

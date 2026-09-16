@@ -40,16 +40,20 @@ function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
     n_g = num_generators(input)
     n_l = num_loads(input)
     n_branches = num_branches(input)
+    n_dc = num_dclines(input)
 
     V, Pg, Qg = model[:V], model[:Pg], model[:Qg]
     P_inj_from, P_inj_to = model[:P_inj_from], model[:P_inj_to]
     Q_inj_from, Q_inj_to = model[:Q_inj_from], model[:Q_inj_to]
+    Pf, Pt, Qf, Qt = model[:Pf], model[:Pt], model[:Qf], model[:Qt]
 
     @constraint(
         model,
         active_power_balance[i in 1:n],
         sum(Pg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
-        sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) ==
+        sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) -
+        sum(Pf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
+        sum(Pt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) ==
         sum(P_inj_from[k] for k in 1:n_branches if branch_from_bus_idx(input, k) == i; init = 0.0) +
         sum(P_inj_to[k] for k in 1:n_branches if branch_to_bus_idx(input, k) == i; init = 0.0)
     )
@@ -58,7 +62,9 @@ function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
         model,
         reactive_power_balance[i in 1:n],
         sum(Qg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
-        sum(load_reactive_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) ==
+        sum(load_reactive_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) +
+        sum(Qf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
+        sum(Qt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) ==
         sum(Q_inj_from[k] for k in 1:n_branches if branch_from_bus_idx(input, k) == i; init = 0.0) +
         sum(Q_inj_to[k] for k in 1:n_branches if branch_to_bus_idx(input, k) == i; init = 0.0) -
         bus_shunt_susceptance(input, i) * V[i]^2
