@@ -49,3 +49,8 @@ test/**/*.html
 test/**/*.csv
 test/**/*.toml
 test/**/*.bst
+
+# pglib-opf case files cloned locally for benchmarking (see pglib_benchmark/),
+# plus the parsed-case JSON cache shared between its two Julia environments
+pglib_benchmark/pglib-opf/
+pglib_benchmark/cache/
