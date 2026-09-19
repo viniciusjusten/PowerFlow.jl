@@ -63,10 +63,7 @@ function tap_variables!(input, model, formulation::ACFormulation, ::Type{ModelBu
     n_branches = num_branches(input)
     @variable(
         model,
-        tap_var[
-            k in 1:n_branches;
-            branch_is_transformer(input, k) && branch_min_tap_ratio(input, k) != branch_max_tap_ratio(input, k)
-        ],
+        tap_var[k in 1:n_branches; branch_has_variable_tap(input, k)],
         lower_bound = branch_min_tap_ratio(input, k),
         upper_bound = branch_max_tap_ratio(input, k),
         # start = branch_tap_ratio(input, k),
@@ -75,7 +72,7 @@ function tap_variables!(input, model, formulation::ACFormulation, ::Type{ModelBu
     @expression(
         model,
         tap[k in 1:n_branches],
-        if branch_is_transformer(input, k) && branch_min_tap_ratio(input, k) != branch_max_tap_ratio(input, k)
+        if branch_has_variable_tap(input, k)
             tap_var[k]
         else
             branch_tap_ratio(input, k)

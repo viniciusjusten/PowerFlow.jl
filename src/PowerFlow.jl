@@ -27,6 +27,9 @@ include("dc/objective.jl")
 include("dc/dcopf.jl")
 include("dc/dcpf.jl")
 
+include("sensitivity/inputs_from_results.jl")
+include("sensitivity/tap_sensitivity.jl")
+
 export run_acopf, run_acpf, run_dcopf, run_dcpf
 export ACOPFFormulation,
     ACOPFMinRedispatchFormulation,
@@ -35,5 +38,11 @@ export ACOPFFormulation,
     ACPFPmisVmisFormulation,
     ACPFFormulation
 export ACSolution, DCSolution
+export build_inputs_from_results
+export TapSensitivity,
+    build_tap_sensitivities,
+    reactive_power_tap_derivatives!,
+    voltage_tap_derivatives!,
+    run_tap_sensitivities
 
 end # module PowerFlow

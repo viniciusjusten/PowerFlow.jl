@@ -9,6 +9,11 @@ function build_test_system(;
     l13_max_flow::Float64 = 5.0,
     l12_min_tap_ratio::Float64 = 1.0,
     l12_max_tap_ratio::Float64 = 1.0,
+    l23_is_transformer::Bool = false,
+    l23_shunt_susceptance::Float64 = 0.0,
+    l23_tap_ratio::Float64 = 1.0,
+    l23_min_tap_ratio::Float64 = l23_tap_ratio,
+    l23_max_tap_ratio::Float64 = l23_tap_ratio,
 )
     input = PowerSystemData.Input()
 
@@ -35,6 +40,11 @@ function build_test_system(;
         resistance = 0.01,
         reactance = 0.1,
         max_flow = 5.0,
+        shunt_susceptance = l23_shunt_susceptance,
+        is_transformer = l23_is_transformer,
+        tap_ratio = l23_tap_ratio,
+        min_tap_ratio = l23_min_tap_ratio,
+        max_tap_ratio = l23_max_tap_ratio,
     )
     add_branch!(
         input;
@@ -278,4 +288,121 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
               dcline_active_power(input, 1) * (1 - dcline_loss_coefficient(input, 1)) -
               dcline_constant_loss(input, 1) atol = 1e-10
     end
+
+    @testset "build_inputs_from_results loads every setpoint from the solution" begin
+        input = build_test_system()
+        sol = run_acopf(input)
+        rebuilt = build_inputs_from_results(input, sol)
+
+        for i in 1:num_buses(rebuilt)
+            @test bus_voltage(rebuilt, i) ≈ sol.voltage[i]
+            @test bus_voltage_angle(rebuilt, i) ≈ sol.voltage_angle[i]
+        end
+        for g in 1:num_generators(rebuilt)
+            @test generator_active_power(rebuilt, g) ≈ sol.active_power_generation[g]
+            @test generator_reactive_power(rebuilt, g) ≈ sol.reactive_power_generation[g]
+            @test generator_voltage_setpoint(rebuilt, g) ≈ sol.voltage[generator_bus_idx(rebuilt, g)]
+        end
+
+        # the original is left untouched, and re-solving the rebuilt inputs reproduces the same point
+        @test bus_voltage(input, 3) == 1.0
+        resolved = run_acpf(rebuilt)
+        @test resolved.voltage ≈ sol.voltage atol = 1e-6
+        @test resolved.voltage_angle ≈ sol.voltage_angle atol = 1e-6
+    end
+
+    @testset "tap sensitivities" begin
+        input = build_test_system(; l23_is_transformer = true, l23_tap_ratio = 1.05, l23_min_tap_ratio = 0.9, l23_max_tap_ratio = 1.1)
+        sol = run_acopf(input)
+        sensitivities = run_tap_sensitivities(input, sol)
+
+        # only L23 has tap slack, and it connects the PV bus 2 to the PQ bus 3
+        @test length(sensitivities) == 1
+        s = sensitivities[1]
+        @test s.branch_idx == 2
+        @test s.branch_name == "L23"
+        @test (s.from_bus_idx, s.to_bus_idx) == (2, 3)
+        @test s.tap_ratio == 1.05
+
+        rebuilt = build_inputs_from_results(input, sol)
+        pf_sol = run_acpf(rebuilt)
+        V, angle = pf_sol.voltage, pf_sol.voltage_angle
+        problem = PowerFlow.build_acpf_standard_problem(rebuilt)
+        G, B = problem.G, problem.B
+        @test s.voltage_from ≈ V[2]
+        @test s.voltage_to ≈ V[3]
+        @test s.angle_difference ≈ angle[2] - angle[3]
+
+        # dQ/dV against a central difference of the bus reactive power injection
+        h = 1e-6
+        function dQ_dV_finite_difference(i, j)
+            V_up, V_down = copy(V), copy(V)
+            V_up[j] += h
+            V_down[j] -= h
+            up = PowerFlow.reactive_power_calc(i, V_up, angle, G, B)
+            down = PowerFlow.reactive_power_calc(i, V_down, angle, G, B)
+            return (up - down) / (2h)
+        end
+        @test s.dQ_from_dV_from ≈ dQ_dV_finite_difference(2, 2) atol = 1e-6
+        @test s.dQ_from_dV_to ≈ dQ_dV_finite_difference(2, 3) atol = 1e-6
+        @test s.dQ_to_dV_from ≈ dQ_dV_finite_difference(3, 2) atol = 1e-6
+        @test s.dQ_to_dV_to ≈ dQ_dV_finite_difference(3, 3) atol = 1e-6
+
+        # dQ/dtap against a central difference of the branch reactive injection at each terminal
+        function dQ_dtap_finite_difference(side)
+            up = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio + h)
+            down = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio - h)
+            return (up - down) / (2h)
+        end
+        @test s.dQ_from_dtap ≈ dQ_dtap_finite_difference(:from) atol = 1e-5
+        @test s.dQ_to_dtap ≈ dQ_dtap_finite_difference(:to) atol = 1e-5
+
+        # bus 2 is PV, so the tap moves its reactive generation rather than its voltage; bus 3 is the
+        # only free terminal, so the chain rule collapses to a scalar solve
+        @test s.dV_from_dtap == 0.0
+        @test s.dV_to_dtap ≈ -s.dQ_to_dtap / s.dQ_to_dV_to
+
+        # the sign agrees with re-solving the power flow at a perturbed tap
+        perturbed = build_inputs_from_results(input, sol)
+        perturbed.static.branches[2].tap_ratio += 0.01
+        perturbed_sol = run_acpf(perturbed)
+        @test sign(perturbed_sol.voltage[3] - V[3]) == sign(s.dV_to_dtap)
+    end
+
+    @testset "dQ/dtap holds for a transformer with charging susceptance" begin
+        # the b_c / 2 term of dQ_from/dtap only shows up when the transformer has a shunt, and it
+        # only matches the network model because ybus/branch_admittance_terms divide that shunt by
+        # tap^2 the way makeYbus.m does
+        input = build_test_system(;
+            l23_is_transformer = true,
+            l23_shunt_susceptance = 0.04,
+            l23_tap_ratio = 1.05,
+            l23_min_tap_ratio = 0.9,
+            l23_max_tap_ratio = 1.1,
+        )
+        sol = run_acopf(input)
+        s = run_tap_sensitivities(input, sol)[1]
+
+        rebuilt = build_inputs_from_results(input, sol)
+        pf_sol = run_acpf(rebuilt)
+        V, angle = pf_sol.voltage, pf_sol.voltage_angle
+
+        h = 1e-6
+        function dQ_dtap_finite_difference(side)
+            up = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio + h)
+            down = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio - h)
+            return (up - down) / (2h)
+        end
+        @test s.dQ_from_dtap ≈ dQ_dtap_finite_difference(:from) atol = 1e-5
+        @test s.dQ_to_dtap ≈ dQ_dtap_finite_difference(:to) atol = 1e-5
+
+        # the shunt contributes to the from side only
+        @test s.dQ_from_dtap != 0.0
+    end
+
+    @testset "tap sensitivities are empty without tap slack" begin
+        input = build_test_system()
+        @test isempty(run_tap_sensitivities(input))
+    end
+
 end

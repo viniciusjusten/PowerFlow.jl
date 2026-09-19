@@ -5,6 +5,7 @@ struct ACSolution
     reactive_power_generation::Vector{Float64}
     objective_value::Float64
     termination_status::Any
+    # TODO - add tap solution and duals
 end
 
 struct DCSolution
@@ -12,6 +13,7 @@ struct DCSolution
     active_power_generation::Vector{Float64}
     objective_value::Float64
     termination_status::Any
+    # TODO - add duals
 end
 
 function extract_ac_solution(model::JuMP.Model)

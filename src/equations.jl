@@ -11,6 +11,13 @@ function reactive_power_calc(i::Int, V, angle, G, B)
     return V[i] * sum(V[k] * (G[i, k] * sin(angle[i] - angle[k]) - B[i, k] * cos(angle[i] - angle[k])) for k in 1:n)
 end
 
+# a branch whose tap ratio is a degree of freedom rather than fixed data: a transformer whose
+# min/max tap ratios leave it some room. Used both to declare the JuMP tap variables and to pick the
+# transformers that get tap sensitivities.
+function branch_has_variable_tap(input, k::Int)
+    return branch_is_transformer(input, k) && branch_min_tap_ratio(input, k) != branch_max_tap_ratio(input, k)
+end
+
 # per-branch admittance terms shared by active_injection/reactive_injection at both sides of a branch —
 # computed once per branch (not once per call) since `y = 1/(r + im*x)` would otherwise be redone
 # redundantly for every one of the 4 (side, active/reactive) combinations that need it.
@@ -24,10 +31,10 @@ function branch_admittance_terms(input, k::Int, tap)
     g_sh = branch_shunt_conductance(input, k)
     b_sh = branch_shunt_susceptance(input, k)
 
-    # Matpower/PowerModels convention (see Branch.tap_ratio's docstring): tap divides the
-    # from-bus side, the to-bus side is unscaled.
-    G_from = g / tap^2 + g_sh
-    B_from = b / tap^2 + b_sh
+    # Matpower/PowerModels convention (see Branch.tap_ratio's docstring): tap^2 divides the whole
+    # from-bus self admittance, shunt included, and the to-bus side is unscaled.
+    G_from = (g + g_sh) / tap^2
+    B_from = (b + b_sh) / tap^2
     G_to = g + g_sh
     B_to = b + b_sh
 
