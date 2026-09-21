@@ -324,10 +324,9 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         @test (s.from_bus_idx, s.to_bus_idx) == (2, 3)
         @test s.tap_ratio == 1.05
 
-        rebuilt = build_inputs_from_results(input, sol)
-        pf_sol = run_acpf(rebuilt)
-        V, angle = pf_sol.voltage, pf_sol.voltage_angle
-        problem = PowerFlow.build_acpf_standard_problem(rebuilt)
+        # the sensitivities are taken at the solution itself, with no power flow re-solve in between
+        V, angle = sol.voltage, sol.voltage_angle
+        problem = PowerFlow.build_acpf_standard_problem(input)
         G, B = problem.G, problem.B
         @test s.voltage_from ≈ V[2]
         @test s.voltage_to ≈ V[3]
@@ -350,8 +349,8 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
 
         # dQ/dtap against a central difference of the branch reactive injection at each terminal
         function dQ_dtap_finite_difference(side)
-            up = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio + h)
-            down = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio - h)
+            up = PowerFlow.reactive_injection(input, 2, V, angle, side, s.tap_ratio + h)
+            down = PowerFlow.reactive_injection(input, 2, V, angle, side, s.tap_ratio - h)
             return (up - down) / (2h)
         end
         @test s.dQ_from_dtap ≈ dQ_dtap_finite_difference(:from) atol = 1e-5
@@ -383,14 +382,12 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         sol = run_acopf(input)
         s = run_tap_sensitivities(input, sol)[1]
 
-        rebuilt = build_inputs_from_results(input, sol)
-        pf_sol = run_acpf(rebuilt)
-        V, angle = pf_sol.voltage, pf_sol.voltage_angle
+        V, angle = sol.voltage, sol.voltage_angle
 
         h = 1e-6
         function dQ_dtap_finite_difference(side)
-            up = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio + h)
-            down = PowerFlow.reactive_injection(rebuilt, 2, V, angle, side, s.tap_ratio - h)
+            up = PowerFlow.reactive_injection(input, 2, V, angle, side, s.tap_ratio + h)
+            down = PowerFlow.reactive_injection(input, 2, V, angle, side, s.tap_ratio - h)
             return (up - down) / (2h)
         end
         @test s.dQ_from_dtap ≈ dQ_dtap_finite_difference(:from) atol = 1e-5

@@ -57,12 +57,12 @@ function reactive_power_voltage_derivative(i::Int, j::Int, V, angle, G, B)
 end
 
 """
-    build_tap_sensitivities(input)
     build_tap_sensitivities(input, solution::ACSolution)
 
 Build one [`TapSensitivity`](@ref) per variable-tap transformer of `input`, with the operating point
-and the dQ/dV block filled in. The single-argument form solves the standard power flow
-(`run_acpf(input, ACPFFormulation())`) first; the two-argument form takes an already solved point.
+and the dQ/dV block filled in. Nothing is solved here: the voltages and angles come from `solution`
+and `input` only supplies the network model, so `input` must already carry the tap ratios `solution`
+was obtained at.
 
 Only the four dQ/dV combinations over the transformer's own two terminals are computed — the rest of
 the network's reaction to a voltage change is not included.
@@ -103,10 +103,6 @@ function build_tap_sensitivities(input, solution::ACSolution)
     return sensitivities
 end
 
-function build_tap_sensitivities(input)
-    return build_tap_sensitivities(input, run_acpf(input, ACPFFormulation()))
-end
-
 """
     reactive_power_tap_derivatives!(sensitivities, input)
 
@@ -115,14 +111,14 @@ the branch's reactive power injection with respect to its tap ratio, evaluated a
 already stored on the struct. Returns `sensitivities`.
 
 With `g_s + im * b_s` the series admittance, `b_c / 2` the branch's per-side charging susceptance,
-`tau` the tap ratio and `dtheta = angle_from - angle_to`:
+`tap` the tap ratio and `dtheta = angle_from - angle_to`:
 
-    dQ_from/dtau = 2 * (V_from^2 / tau^3) * (b_s + b_c / 2)
-                   + (V_from * V_to / tau^2) * (g_s * sin(dtheta) - b_s * cos(dtheta))
-    dQ_to/dtau   = -(V_from * V_to / tau^2) * (g_s * sin(dtheta) + b_s * cos(dtheta))
+    dQ_from/dtap = 2 * (V_from^2 / tap^3) * (b_s + b_c / 2)
+                   + (V_from * V_to / tap^2) * (g_s * sin(dtheta) - b_s * cos(dtheta))
+    dQ_to/dtap   = -(V_from * V_to / tap^2) * (g_s * sin(dtheta) + b_s * cos(dtheta))
 
 The `b_c / 2` inside the first term comes from the Matpower form of the from-side self admittance,
-`(y_s + im * b_c / 2) / tau^2`, which is what `branch_admittance_terms` and `PowerSystemData.ybus`
+`(y_s + im * b_c / 2) / tap^2`, which is what `branch_admittance_terms` and `PowerSystemData.ybus`
 build — so these are the exact derivatives of the network model being solved here. They do assume a
 zero phase shift, the only case `branch_admittance_terms` and these formulas agree on.
 """
@@ -133,14 +129,14 @@ function reactive_power_tap_derivatives!(sensitivities, input)
         g_s, b_s = real(y), imag(y)
         b_charging = branch_shunt_susceptance(input, k) # already the per-side b_c / 2
 
-        tau = s.tap_ratio
+        tap = s.tap_ratio
         V_from, V_to = s.voltage_from, s.voltage_to
         sin_diff, cos_diff = sin(s.angle_difference), cos(s.angle_difference)
 
         s.dQ_from_dtap =
-            2 * (V_from^2 / tau^3) * (b_s + b_charging) +
-            (V_from * V_to / tau^2) * (g_s * sin_diff - b_s * cos_diff)
-        s.dQ_to_dtap = -(V_from * V_to / tau^2) * (g_s * sin_diff + b_s * cos_diff)
+            2 * (V_from^2 / tap^3) * (b_s + b_charging) +
+            (V_from * V_to / tap^2) * (g_s * sin_diff - b_s * cos_diff)
+        s.dQ_to_dtap = -(V_from * V_to / tap^2) * (g_s * sin_diff + b_s * cos_diff)
     end
 
     return sensitivities
@@ -155,7 +151,7 @@ the dQ/dtap vector already stored on the struct. Returns `sensitivities`.
 The specified reactive injections at the two terminals do not move with the tap, so the total
 derivative of each injection vanishes:
 
-    dQ/dtau + (dQ/dV) * (dV/dtau) = 0   =>   dV/dtau = -(dQ/dV) \\ (dQ/dtau)
+    dQ/dtap + (dQ/dV) * (dV/dtap) = 0   =>   dV/dtap = -(dQ/dV) \\ (dQ/dtap)
 
 restricted to the terminals whose voltage is actually free. A PV or Slack terminal is held at its
 voltage setpoint, so its dV/dtap is zero and it is dropped from the linear system — there the tap
@@ -180,22 +176,23 @@ end
 
 """
     run_tap_sensitivities(input)
-    run_tap_sensitivities(input, solution::ACSolution; tap_ratio = nothing)
+    run_tap_sensitivities(input, solution::ACSolution)
 
-Full pipeline for the variable-tap transformers of a system: build the dQ/dV block from a standard
-power flow solve, add the analytic dQ/dtap derivatives, then chain the two into dV/dtap. Returns the
+Full pipeline for the variable-tap transformers of a system: build the dQ/dV block at a solved
+operating point, add the analytic dQ/dtap derivatives, then chain the two into dV/dtap. Returns the
 vector of [`TapSensitivity`](@ref).
 
-The two-argument form starts from an existing `ACSolution`, rebuilding the inputs at that operating
-point with [`build_inputs_from_results`](@ref) before solving the standard power flow on them.
+Everything is analytic from `solution` onwards, so the two-argument form solves nothing — pass the
+solution of an already run case together with the inputs it was run on, taps included. The
+single-argument form has no solution to start from and runs the standard power flow itself.
 """
-function run_tap_sensitivities(input)
-    sensitivities = build_tap_sensitivities(input)
+function run_tap_sensitivities(input, solution::ACSolution)
+    sensitivities = build_tap_sensitivities(input, solution)
     reactive_power_tap_derivatives!(sensitivities, input)
     voltage_tap_derivatives!(sensitivities, input)
     return sensitivities
 end
 
-function run_tap_sensitivities(input, solution::ACSolution; tap_ratio = nothing)
-    return run_tap_sensitivities(build_inputs_from_results(input, solution; tap_ratio))
+function run_tap_sensitivities(input)
+    return run_tap_sensitivities(input, run_acpf(input, ACPFFormulation()))
 end
