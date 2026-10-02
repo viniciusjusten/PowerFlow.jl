@@ -21,8 +21,8 @@ function voltage_variables!(input, model, formulation::ACFormulation, ::Type{Mod
 
     # V is created free and gets its limits below, because the buses whose violation is penalized
     # must be able to leave the limits in the first place
-    @variable(model, V[i in 1:n], start = bus_voltage(input, i))
-    @variable(model, angle[i in 1:n], start = bus_voltage_angle(input, i))
+    @variable(model, V[i in 1:n], start = 1) # bus_voltage(input, i))
+    @variable(model, angle[i in 1:n], start = 0) # bus_voltage_angle(input, i))
 
     violation_buses = voltage_violation_buses(input, formulation)
 

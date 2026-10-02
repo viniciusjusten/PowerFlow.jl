@@ -6,10 +6,34 @@ function branch_injections!(input, model, formulation::ACFormulation, ::Type{Mod
     from = [branch_from_bus_idx(input, k) for k in 1:n_branches]
     to = [branch_to_bus_idx(input, k) for k in 1:n_branches]
 
-    @expression(model, P_inj_from[k in 1:n_branches], active_injection(V, angle, from[k], to[k], :from, terms[k]))
-    @expression(model, P_inj_to[k in 1:n_branches], active_injection(V, angle, from[k], to[k], :to, terms[k]))
-    @expression(model, Q_inj_from[k in 1:n_branches], reactive_injection(V, angle, from[k], to[k], :from, terms[k]))
-    @expression(model, Q_inj_to[k in 1:n_branches], reactive_injection(V, angle, from[k], to[k], :to, terms[k]))
+    # the flows are variables tied to the voltages by equality constraints, as in PowerModels, so the
+    # power balance stays linear in them and the thermal limits are quadratics in the flows instead
+    # of in the trigonometric expressions
+    @variable(model, P_inj_from[k in 1:n_branches])
+    @variable(model, P_inj_to[k in 1:n_branches])
+    @variable(model, Q_inj_from[k in 1:n_branches])
+    @variable(model, Q_inj_to[k in 1:n_branches])
+
+    @constraint(
+        model,
+        P_inj_from_definition[k in 1:n_branches],
+        P_inj_from[k] == active_injection(V, angle, from[k], to[k], :from, terms[k]),
+    )
+    @constraint(
+        model,
+        P_inj_to_definition[k in 1:n_branches],
+        P_inj_to[k] == active_injection(V, angle, from[k], to[k], :to, terms[k]),
+    )
+    @constraint(
+        model,
+        Q_inj_from_definition[k in 1:n_branches],
+        Q_inj_from[k] == reactive_injection(V, angle, from[k], to[k], :from, terms[k]),
+    )
+    @constraint(
+        model,
+        Q_inj_to_definition[k in 1:n_branches],
+        Q_inj_to[k] == reactive_injection(V, angle, from[k], to[k], :to, terms[k]),
+    )
 
     return nothing
 end
@@ -30,7 +54,41 @@ function branch_flow_limit!(input, model, formulation::ACFormulation, ::Type{Mod
 
         @constraint(model, P_inj_from[k]^2 + Q_inj_from[k]^2 <= max_flow^2)
         @constraint(model, P_inj_to[k]^2 + Q_inj_to[k]^2 <= max_flow^2)
+
+        # redundant with the limit above at the solution, but Ipopt keeps every iterate inside
+        # variable bounds, while it only enforces the constraint at convergence
+        for flow in (P_inj_from[k], P_inj_to[k], Q_inj_from[k], Q_inj_to[k])
+            JuMP.set_lower_bound(flow, -max_flow)
+            JuMP.set_upper_bound(flow, max_flow)
+        end
     end
+
+    return nothing
+end
+
+# the angle of the from-bus minus the angle of the to-bus of every branch stays within the branch's
+# limits. Like the thermal limits, this only applies to the formulations that redispatch, so that a
+# plain power flow solves whatever the scheduled data imposes.
+function branch_angle_difference_limit!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
+    if !allows_generation_redispatch(formulation)
+        return nothing
+    end
+
+    angle = model[:angle]
+    n_branches = num_branches(input)
+    from = [branch_from_bus_idx(input, k) for k in 1:n_branches]
+    to = [branch_to_bus_idx(input, k) for k in 1:n_branches]
+
+    @constraint(
+        model,
+        angle_difference_min[k in 1:n_branches],
+        angle[from[k]] - angle[to[k]] >= branch_min_angle_difference(input, k),
+    )
+    @constraint(
+        model,
+        angle_difference_max[k in 1:n_branches],
+        angle[from[k]] - angle[to[k]] <= branch_max_angle_difference(input, k),
+    )
 
     return nothing
 end

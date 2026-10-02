@@ -18,7 +18,7 @@ function generator_variables!(input, model, ::Type{ModelBuild})
     @variable(
         model,
         generator_min_active_power(input, g) <= Pg[g in 1:n_g] <= generator_max_active_power(input, g),
-        start = generator_active_power(input, g),
+        # start = generator_active_power(input, g),
     )
 
     return nothing
@@ -36,7 +36,7 @@ function dcline_variables!(input, model, ::Type{ModelBuild})
         Pf[k in 1:n_dc],
         lower_bound = -dcline_max_flow_to_from(input, k),
         upper_bound = dcline_max_flow_from_to(input, k),
-        start = dcline_active_power(input, k),
+        # start = dcline_active_power(input, k),
     )
 
     @expression(
