@@ -39,6 +39,7 @@ Manifest.toml
 *.lp
 *.html
 *.sqlite
+*.m
 
 test/examples/**
 !test/examples/**/

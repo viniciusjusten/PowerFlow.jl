@@ -20,7 +20,7 @@ function power_balance!(input, model, ::Type{ModelBuild})
         active_power_balance[i in 1:n],
         sum(Pg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
         sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) -
-        sum(Pf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
+        sum(Pf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) -
         sum(Pt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) ==
         sum(B[i, j] * (angle[i] - angle[j]) for j in 1:n if j != i)
     )

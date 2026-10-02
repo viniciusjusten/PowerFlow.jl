@@ -121,12 +121,13 @@ function bus_reactive_power_injection(input, i::Int)
             total -= load_reactive_power(input, l)
         end
     end
+    # the DC line data is the reactive power leaving the bus into the line at each terminal
     for k in 1:num_dclines(input)
         if dcline_from_bus_idx(input, k) == i
-            total += dcline_reactive_power_from(input, k)
+            total -= dcline_reactive_power_from(input, k)
         end
         if dcline_to_bus_idx(input, k) == i
-            total += dcline_reactive_power_to(input, k)
+            total -= dcline_reactive_power_to(input, k)
         end
     end
     return total

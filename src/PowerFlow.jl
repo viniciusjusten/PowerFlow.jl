@@ -34,6 +34,7 @@ export run_acopf, run_acpf, run_dcopf, run_dcpf
 export ACOPFFormulation,
     ACOPFMinRedispatchFormulation,
     ACOPFTapFormulation,
+    ACOPFMinVoltageViolationFormulation,
     ACPFFeasibilityFormulation,
     ACPFPmisVmisFormulation,
     ACPFFormulation

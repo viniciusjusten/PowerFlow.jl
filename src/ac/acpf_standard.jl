@@ -108,5 +108,8 @@ function run_acpf(input, ::ACPFFormulation)
     Pg = [generator_active_power(input, g) for g in 1:num_generators(input)]
     Qg = [generator_reactive_power_output(input, g, V, angle, p.G, p.B) for g in 1:num_generators(input)]
 
-    return ACSolution(V, angle, Pg, Qg, NaN, sol.retcode)
+    P_from, P_to, Q_from, Q_to = ac_branch_flows(input, V, angle)
+    Pf, Pt, Qf, Qt = dcline_scheduled_flows(input)
+
+    return ACSolution(V, angle, Pg, Qg, P_from, P_to, Q_from, Q_to, Pf, Pt, Qf, Qt, NaN, sol.retcode)
 end

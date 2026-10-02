@@ -14,12 +14,14 @@ function build_test_system(;
     l23_tap_ratio::Float64 = 1.0,
     l23_min_tap_ratio::Float64 = l23_tap_ratio,
     l23_max_tap_ratio::Float64 = l23_tap_ratio,
+    pq_min_voltage::Float64 = 0.9,
+    pq_max_voltage::Float64 = 1.1,
 )
     input = PowerSystemData.Input()
 
     add_bus!(input; name = "Slack", type = BusType.Slack, voltage = 1.0, min_voltage = 0.9, max_voltage = 1.1)
     add_bus!(input; name = "PV", type = BusType.PV, voltage = 1.0, min_voltage = 0.9, max_voltage = 1.1)
-    add_bus!(input; name = "PQ", type = BusType.PQ, min_voltage = 0.9, max_voltage = 1.1)
+    add_bus!(input; name = "PQ", type = BusType.PQ, min_voltage = pq_min_voltage, max_voltage = pq_max_voltage)
 
     add_branch!(
         input;
@@ -238,7 +240,7 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         Qf, Qt = JuMP.value(model[:Qf][1]), JuMP.value(model[:Qt][1])
 
         @test sol.termination_status == SOLVED
-        @test Pt ≈ Pf * (1 - dcline_loss_coefficient(input, 1)) - dcline_constant_loss(input, 1) atol = 1e-6
+        @test -Pt ≈ Pf * (1 - dcline_loss_coefficient(input, 1)) - dcline_constant_loss(input, 1) atol = 1e-6
         @test -dcline_max_flow_to_from(input, 1) - 1e-6 <= Pf <= dcline_max_flow_from_to(input, 1) + 1e-6
         @test dcline_min_reactive_power_from(input, 1) - 1e-6 <= Qf <= dcline_max_reactive_power_from(input, 1) + 1e-6
         @test dcline_min_reactive_power_to(input, 1) - 1e-6 <= Qt <= dcline_max_reactive_power_to(input, 1) + 1e-6
@@ -258,6 +260,23 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         @test JuMP.value(model[:Qt][1]) ≈ dcline_reactive_power_to(input, 1) atol = 1e-6
     end
 
+    @testset "ACPF feasibility with a DC line matches standard NonlinearSolve solve" begin
+        # the scheduled reactive power of the test DC line is nonzero at both terminals, so a sign
+        # mismatch between the JuMP model and bus_reactive_power_injection would move the voltages
+        input = add_test_dcline!(build_test_system())
+
+        sol_feasibility = run_acpf(input, ACPFFeasibilityFormulation())
+        sol_standard = run_acpf(input)
+
+        @test sol_feasibility.termination_status == SOLVED
+        @test sol_standard.voltage ≈ sol_feasibility.voltage atol = 1e-4
+        @test sol_standard.voltage_angle ≈ sol_feasibility.voltage_angle atol = 1e-4
+        @test sol_standard.branch_active_power_from ≈ sol_feasibility.branch_active_power_from atol = 1e-4
+        @test sol_standard.branch_reactive_power_to ≈ sol_feasibility.branch_reactive_power_to atol = 1e-4
+        @test sol_standard.dcline_active_power_to ≈ sol_feasibility.dcline_active_power_to atol = 1e-6
+        @test sol_standard.dcline_reactive_power_from ≈ sol_feasibility.dcline_reactive_power_from atol = 1e-6
+    end
+
     @testset "DCOPF with DC line" begin
         input = add_test_dcline!(build_test_system())
         sol = run_dcopf(input)
@@ -270,7 +289,7 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         Pf, Pt = JuMP.value(model[:Pf][1]), JuMP.value(model[:Pt][1])
 
         @test sol.termination_status == JuMP.MOI.OPTIMAL
-        @test Pt ≈ Pf * (1 - dcline_loss_coefficient(input, 1)) - dcline_constant_loss(input, 1) atol = 1e-6
+        @test -Pt ≈ Pf * (1 - dcline_loss_coefficient(input, 1)) - dcline_constant_loss(input, 1) atol = 1e-6
         @test -dcline_max_flow_to_from(input, 1) - 1e-6 <= Pf <= dcline_max_flow_from_to(input, 1) + 1e-6
     end
 
@@ -287,6 +306,59 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         @test PowerFlow.dcline_to_bus_active_power(input, 1) ≈
               dcline_active_power(input, 1) * (1 - dcline_loss_coefficient(input, 1)) -
               dcline_constant_loss(input, 1) atol = 1e-10
+    end
+
+    @testset "ACOPF minimizing the voltage violation at variable-tap terminals" begin
+        # L23 is the only variable-tap transformer, so buses 2 and 3 are the penalized terminals.
+        # Bus 3 is asked for a band above what buses 1 and 2 can hold it at, so the violation cannot
+        # reach zero.
+        input = build_test_system(;
+            l23_is_transformer = true,
+            l23_min_tap_ratio = 0.9,
+            l23_max_tap_ratio = 1.1,
+            pq_min_voltage = 1.15,
+            pq_max_voltage = 1.2,
+        )
+        sol = run_acopf(input, ACOPFMinVoltageViolationFormulation())
+
+        @test sol.termination_status == SOLVED
+
+        # the objective is the violation itself, summed over the two terminals of L23 only
+        violation(i) =
+            max(0.0, sol.voltage[i] - bus_max_voltage(input, i)) +
+            max(0.0, bus_min_voltage(input, i) - sol.voltage[i])
+        @test sol.objective_value > 1e-3
+        @test sol.objective_value ≈ violation(2) + violation(3) atol = 1e-6
+        @test violation(3) > 1e-3
+
+        # bus 1 is not a tap terminal, so its limits stayed hard bounds
+        @test 0.9 - 1e-6 <= sol.voltage[1] <= 1.1 + 1e-6
+        # the taps are data, not variables: minimizing the violation must not move them
+        @test branch_tap_ratio(input, 2) == 1.0
+
+        # the same system with room to spare drives the violation to zero
+        feasible = build_test_system(;
+            l23_is_transformer = true,
+            l23_min_tap_ratio = 0.9,
+            l23_max_tap_ratio = 1.1,
+        )
+        feasible_sol = run_acopf(feasible, ACOPFMinVoltageViolationFormulation())
+        @test feasible_sol.termination_status == SOLVED
+        @test feasible_sol.objective_value ≈ 0.0 atol = 1e-6
+        @test 0.9 - 1e-6 <= feasible_sol.voltage[3] <= 1.1 + 1e-6
+    end
+
+    @testset "voltage violation slacks are absent without variable-tap transformers" begin
+        # no variable-tap transformer means no penalized bus, so every voltage limit stays a hard
+        # bound and the objective is empty
+        input = build_test_system()
+        sol = run_acopf(input, ACOPFMinVoltageViolationFormulation())
+
+        @test sol.termination_status == SOLVED
+        @test sol.objective_value ≈ 0.0 atol = 1e-8
+        for i in 1:num_buses(input)
+            @test bus_min_voltage(input, i) - 1e-6 <= sol.voltage[i] <= bus_max_voltage(input, i) + 1e-6
+        end
     end
 
     @testset "build_inputs_from_results loads every setpoint from the solution" begin

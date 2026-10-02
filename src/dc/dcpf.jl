@@ -17,5 +17,8 @@ function run_dcpf(input)
 
     Pg = [generator_active_power(input, g) for g in 1:num_generators(input)]
 
-    return DCSolution(angle, Pg, NaN, nothing)
+    flow = dc_branch_flows(input, angle)
+    Pf, Pt, _, _ = dcline_scheduled_flows(input)
+
+    return DCSolution(angle, Pg, flow, -flow, Pf, Pt, NaN, nothing)
 end

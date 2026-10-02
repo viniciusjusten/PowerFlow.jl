@@ -1,6 +1,8 @@
 using PowerModels, PowerFlow, PowerFlow.PowerSystemData
 
-path = "pglib_benchmark/pglib-opf/pglib_opf_case30_ieee.m"
+# path = raw"D:\codes\PowerFlowExperiments\pglib_benchmark\pglib-opf\pglib_opf_case30_ieee.m"
+path = raw"D:\codes\PowerFlow.jl\case.m"
+# path = "case30_dcline.m"
 PowerModels.silence()
 pm_data = PowerModels.parse_file(path)
 

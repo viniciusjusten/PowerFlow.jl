@@ -32,3 +32,20 @@ function objective_function!(input, model, ::ACPFPmisVmisFormulation, ::Type{Mod
     )
     return nothing
 end
+
+# nothing but the voltage violation: the generators redispatch freely inside their own limits, and
+# the taps stay at their input data (only ACOPFTapFormulation makes them variables)
+function objective_function!(
+    input,
+    model,
+    formulation::ACOPFMinVoltageViolationFormulation,
+    ::Type{ModelBuild},
+)
+    V_over, V_under = model[:V_over], model[:V_under]
+    @objective(
+        model,
+        Min,
+        sum(V_over[i] + V_under[i] for i in voltage_violation_buses(input, formulation); init = 0.0)
+    )
+    return nothing
+end

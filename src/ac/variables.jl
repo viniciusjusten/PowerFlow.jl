@@ -1,20 +1,56 @@
-function voltage_variables!(input, model, ::ACFormulation, ::Type{ModelBuild})
+# the buses whose voltage limits become soft under a formulation that minimizes the voltage
+# violation: the terminals of every variable-tap transformer. Empty for every other formulation, so
+# there the voltage limits stay hard bounds everywhere.
+function voltage_violation_buses(input, formulation::ACFormulation)
+    if !minimizes_voltage_violation(formulation)
+        return Int[]
+    end
+
+    buses = Int[]
+    for k in 1:num_branches(input)
+        if branch_has_variable_tap(input, k)
+            push!(buses, branch_from_bus_idx(input, k), branch_to_bus_idx(input, k))
+        end
+    end
+
+    return sort!(unique!(buses))
+end
+
+function voltage_variables!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
     n = num_buses(input)
 
-    @variable(
-        model,
-        V[i in 1:n],
-        lower_bound = bus_min_voltage(input, i),
-        upper_bound = bus_max_voltage(input, i),
-        start = bus_voltage(input, i),
-    )
+    # V is created free and gets its limits below, because the buses whose violation is penalized
+    # must be able to leave the limits in the first place
+    @variable(model, V[i in 1:n], start = bus_voltage(input, i))
     @variable(model, angle[i in 1:n], start = bus_voltage_angle(input, i))
 
+    violation_buses = voltage_violation_buses(input, formulation)
+
     for i in 1:n
+        if !(i in violation_buses)
+            JuMP.set_lower_bound(V[i], bus_min_voltage(input, i))
+            JuMP.set_upper_bound(V[i], bus_max_voltage(input, i))
+        end
+
         if bus_type(input, i) == BusType.Slack
             JuMP.fix(angle[i], bus_voltage_angle(input, i); force = true)
         end
     end
+
+    # on the penalized buses the same limits come back as constraints with a slack measuring how far
+    # past each one the voltage goes; the objective is what pushes those slacks to zero
+    @variable(model, V_over[i in violation_buses] >= 0)
+    @variable(model, V_under[i in violation_buses] >= 0)
+    @constraint(
+        model,
+        V_over_constraint[i in violation_buses],
+        V[i] <= bus_max_voltage(input, i) + V_over[i],
+    )
+    @constraint(
+        model,
+        V_under_constraint[i in violation_buses],
+        V[i] >= bus_min_voltage(input, i) - V_under[i],
+    )
 
     return nothing
 end
@@ -92,9 +128,11 @@ function branch_tap(input, model, formulation::ACFormulation, k::Int)
     end
 end
 
-# Pf is the flow leaving the from-bus terminal (before losses); Pt is what arrives at the to-bus
-# terminal, after the linear loss model (constant + proportional to Pf) is applied. Qf/Qt are
-# independent reactive power injections at each terminal, bounded by each terminal's own limits.
+# Every DC line variable is the power leaving the AC bus and entering the DC line at its terminal,
+# the PowerModels convention that the DC line data also follows. Pf is the flow leaving the
+# from-bus, and Pt is minus what arrives at the to-bus after the linear loss model (constant plus
+# proportional to Pf) is applied. Qf and Qt are independent at each terminal, bounded by each
+# terminal's own limits.
 function dcline_variables!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
     n_dc = num_dclines(input)
     redispatch = allows_generation_redispatch(formulation)
@@ -124,7 +162,7 @@ function dcline_variables!(input, model, formulation::ACFormulation, ::Type{Mode
     @expression(
         model,
         Pt[k in 1:n_dc],
-        Pf[k] - (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf[k])
+        -Pf[k] + (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf[k])
     )
 
     if !redispatch

@@ -51,9 +51,9 @@ function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
         model,
         active_power_balance[i in 1:n],
         sum(Pg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
-        sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) -
+        sum(load_active_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) ==
         sum(Pf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
-        sum(Pt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) ==
+        sum(Pt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) +
         sum(P_inj_from[k] for k in 1:n_branches if branch_from_bus_idx(input, k) == i; init = 0.0) +
         sum(P_inj_to[k] for k in 1:n_branches if branch_to_bus_idx(input, k) == i; init = 0.0)
     )
@@ -62,9 +62,9 @@ function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
         model,
         reactive_power_balance[i in 1:n],
         sum(Qg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
-        sum(load_reactive_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) +
+        sum(load_reactive_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) ==
         sum(Qf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
-        sum(Qt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) ==
+        sum(Qt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) +
         sum(Q_inj_from[k] for k in 1:n_branches if branch_from_bus_idx(input, k) == i; init = 0.0) +
         sum(Q_inj_to[k] for k in 1:n_branches if branch_to_bus_idx(input, k) == i; init = 0.0) -
         bus_shunt_susceptance(input, i) * V[i]^2
