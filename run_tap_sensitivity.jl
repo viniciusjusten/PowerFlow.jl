@@ -7,7 +7,7 @@ pm_data = PowerModels.parse_file(path)
 
 inputs = PowerSystemData.from_powermodels(pm_data)
 
-transformers =[
+transformers = [
     11,
     12,
     13,

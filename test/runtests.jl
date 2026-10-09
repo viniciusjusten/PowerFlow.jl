@@ -384,7 +384,12 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
     end
 
     @testset "tap sensitivities" begin
-        input = build_test_system(; l23_is_transformer = true, l23_tap_ratio = 1.05, l23_min_tap_ratio = 0.9, l23_max_tap_ratio = 1.1)
+        input = build_test_system(;
+            l23_is_transformer = true,
+            l23_tap_ratio = 1.05,
+            l23_min_tap_ratio = 0.9,
+            l23_max_tap_ratio = 1.1,
+        )
         sol = run_acopf(input)
         sensitivities = run_tap_sensitivities(input, sol)
 
@@ -473,5 +478,4 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         input = build_test_system()
         @test isempty(run_tap_sensitivities(input))
     end
-
 end
