@@ -40,6 +40,7 @@ Manifest.toml
 *.html
 *.sqlite
 *.m
+*.csv
 
 test/examples/**
 !test/examples/**/

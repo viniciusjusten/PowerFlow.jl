@@ -1,11 +1,8 @@
-# the buses whose voltage limits become soft under a formulation that minimizes the voltage
-# violation: the terminals of every variable-tap transformer. Empty for every other formulation, so
-# there the voltage limits stay hard bounds everywhere.
-function voltage_violation_buses(input, formulation::ACFormulation)
-    if !minimizes_voltage_violation(formulation)
-        return Int[]
-    end
-
+# the terminals of every variable-tap transformer, sorted and without repetitions. These are the
+# buses whose voltage limits become soft under a formulation that minimizes the voltage violation,
+# and the buses whose reactive power balance gets slacks under a formulation that minimizes the
+# reactive balance violation.
+function variable_tap_buses(input)
     buses = Int[]
     for k in 1:num_branches(input)
         if branch_has_variable_tap(input, k)
@@ -24,7 +21,11 @@ function voltage_variables!(input, model, formulation::ACFormulation, ::Type{Mod
     @variable(model, V[i in 1:n], start = 1) # bus_voltage(input, i))
     @variable(model, angle[i in 1:n], start = 0) # bus_voltage_angle(input, i))
 
-    violation_buses = voltage_violation_buses(input, formulation)
+    # without a formulation that minimizes the voltage violation every limit stays a hard bound
+    violation_buses = Int[]
+    if minimizes_voltage_violation(formulation)
+        violation_buses = variable_tap_buses(input)
+    end
 
     for i in 1:n
         if !(i in violation_buses)
@@ -51,6 +52,22 @@ function voltage_variables!(input, model, formulation::ACFormulation, ::Type{Mod
         V_under_constraint[i in violation_buses],
         V[i] >= bus_min_voltage(input, i) - V_under[i],
     )
+
+    return nothing
+end
+
+# Q_deficit[i] is a fictitious reactive injection into bus i and Q_surplus[i] a fictitious reactive
+# withdrawal from it, both entering the reactive power balance of the bus. They only exist at the
+# terminals of the variable-tap transformers and only under a formulation that minimizes the
+# reactive balance violation, whose objective is what pushes them to zero.
+function reactive_balance_violation_variables!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
+    if !minimizes_reactive_balance_violation(formulation)
+        return nothing
+    end
+
+    violation_buses = variable_tap_buses(input)
+    @variable(model, Q_deficit[i in violation_buses] >= 0)
+    @variable(model, Q_surplus[i in violation_buses] >= 0)
 
     return nothing
 end

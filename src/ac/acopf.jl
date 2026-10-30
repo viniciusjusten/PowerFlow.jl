@@ -3,6 +3,7 @@ function ac_model!(args...)
     generator_variables!(args...)
     tap_variables!(args...)
     dcline_variables!(args...)
+    reactive_balance_violation_variables!(args...)
     branch_injections!(args...)
     branch_flow_limit!(args...)
     # branch_angle_difference_limit!(args...)
@@ -14,7 +15,7 @@ end
 
 function run_acopf(input, formulation::ACFormulation = ACOPFFormulation())
     model = JuMP.Model(Ipopt.Optimizer)
-    JuMP.set_silent(model)
+    # JuMP.set_silent(model)
 
     ac_model!(input, model, formulation, ModelBuild)
     JuMP.optimize!(model)

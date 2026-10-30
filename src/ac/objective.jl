@@ -38,14 +38,32 @@ end
 function objective_function!(
     input,
     model,
-    formulation::ACOPFMinVoltageViolationFormulation,
+    ::ACOPFMinVoltageViolationFormulation,
     ::Type{ModelBuild},
 )
     V_over, V_under = model[:V_over], model[:V_under]
     @objective(
         model,
         Min,
-        sum(V_over[i] + V_under[i] for i in voltage_violation_buses(input, formulation); init = 0.0)
+        sum(V_over[i] + V_under[i] for i in variable_tap_buses(input); init = 0.0)
+    )
+    return nothing
+end
+
+# nothing but the reactive balance violation at the terminals of the variable-tap transformers. As in
+# the voltage violation formulation, the generators redispatch freely inside their own limits and the
+# taps stay at their input data.
+function objective_function!(
+    input,
+    model,
+    ::ACOPFMinReactiveBalanceViolationFormulation,
+    ::Type{ModelBuild},
+)
+    Q_deficit, Q_surplus = model[:Q_deficit], model[:Q_surplus]
+    @objective(
+        model,
+        Min,
+        sum(Q_deficit[i] + Q_surplus[i] for i in variable_tap_buses(input); init = 0.0)
     )
     return nothing
 end

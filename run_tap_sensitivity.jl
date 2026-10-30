@@ -29,7 +29,7 @@ feasible = [
 for (i, k) in enumerate(transformers)
     inputs.static.branches[k].min_tap_ratio = 0.9
     inputs.static.branches[k].max_tap_ratio = 1.1
-    # inputs.static.branches[k].tap_ratio = 1.1
+    inputs.static.branches[k].tap_ratio = 1.1
 end
 
 # Run DCOPF
@@ -50,7 +50,7 @@ for (i, gen) in enumerate(inputs.static.generators)
 end
 
 # Run ACOPF 
-formulation = PowerFlow.ACOPFMinVoltageViolationFormulation()
+formulation = PowerFlow.ACOPFMinReactiveBalanceViolationFormulation()
 model = JuMP.Model(Ipopt.Optimizer)
 set_attribute(model, "max_iter", 300)
 PowerFlow.ac_model!(inputs, model, formulation, PowerFlow.ModelBuild)

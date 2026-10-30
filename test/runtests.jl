@@ -111,6 +111,24 @@ function add_test_dcline!(input)
     return input
 end
 
+function reactive_balance_mismatch(input, sol, i)
+    generation = sum(
+        sol.reactive_power_generation[g] for g in 1:num_generators(input) if generator_bus_idx(input, g) == i;
+        init = 0.0,
+    )
+    load = sum(load_reactive_power(input, l) for l in 1:num_loads(input) if load_bus_idx(input, l) == i; init = 0.0)
+    outflow = sum(
+        sol.branch_reactive_power_from[k] for k in 1:num_branches(input) if branch_from_bus_idx(input, k) == i;
+        init = 0.0,
+    )
+    outflow += sum(
+        sol.branch_reactive_power_to[k] for k in 1:num_branches(input) if branch_to_bus_idx(input, k) == i;
+        init = 0.0,
+    )
+    outflow -= bus_shunt_susceptance(input, i) * sol.voltage[i]^2
+    return outflow - (generation - load)
+end
+
 const SOLVED = JuMP.MOI.LOCALLY_SOLVED
 
 @testset verbose = true "PowerFlow" begin
@@ -358,6 +376,58 @@ const SOLVED = JuMP.MOI.LOCALLY_SOLVED
         @test sol.objective_value ≈ 0.0 atol = 1e-8
         for i in 1:num_buses(input)
             @test bus_min_voltage(input, i) - 1e-6 <= sol.voltage[i] <= bus_max_voltage(input, i) + 1e-6
+        end
+    end
+
+    @testset "ACOPF minimizing the reactive balance violation at variable-tap terminals" begin
+        # The same system as the voltage violation test above, but now the voltage limits are hard,
+        # and bus 3 can only reach its band through a fictitious reactive injection at buses 2 or 3.
+        input = build_test_system(;
+            l23_is_transformer = true,
+            l23_min_tap_ratio = 0.9,
+            l23_max_tap_ratio = 1.1,
+            pq_min_voltage = 1.15,
+            pq_max_voltage = 1.2,
+        )
+        sol = run_acopf(input, ACOPFMinReactiveBalanceViolationFormulation())
+
+        @test sol.termination_status == SOLVED
+
+        # every voltage stays inside its limits, since they were not relaxed
+        for i in 1:num_buses(input)
+            @test bus_min_voltage(input, i) - 1e-6 <= sol.voltage[i] <= bus_max_voltage(input, i) + 1e-6
+        end
+
+        # the objective is the fictitious reactive injection, summed over the two terminals of L23
+        # only, and bus 1 is not a tap terminal, so its balance holds exactly
+        @test sol.objective_value > 1e-3
+        @test sol.objective_value ≈
+              abs(reactive_balance_mismatch(input, sol, 2)) + abs(reactive_balance_mismatch(input, sol, 3)) atol = 1e-6
+        @test reactive_balance_mismatch(input, sol, 1) ≈ 0.0 atol = 1e-6
+        @test branch_tap_ratio(input, 2) == 1.0
+
+        # the same system with room to spare needs no fictitious injection
+        feasible = build_test_system(;
+            l23_is_transformer = true,
+            l23_min_tap_ratio = 0.9,
+            l23_max_tap_ratio = 1.1,
+        )
+        feasible_sol = run_acopf(feasible, ACOPFMinReactiveBalanceViolationFormulation())
+        @test feasible_sol.termination_status == SOLVED
+        @test feasible_sol.objective_value ≈ 0.0 atol = 1e-6
+        for i in 1:num_buses(feasible)
+            @test reactive_balance_mismatch(feasible, feasible_sol, i) ≈ 0.0 atol = 1e-6
+        end
+    end
+
+    @testset "reactive balance slacks are absent without variable-tap transformers" begin
+        input = build_test_system()
+        sol = run_acopf(input, ACOPFMinReactiveBalanceViolationFormulation())
+
+        @test sol.termination_status == SOLVED
+        @test sol.objective_value ≈ 0.0 atol = 1e-8
+        for i in 1:num_buses(input)
+            @test reactive_balance_mismatch(input, sol, i) ≈ 0.0 atol = 1e-6
         end
     end
 

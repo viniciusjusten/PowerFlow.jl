@@ -93,7 +93,7 @@ function branch_angle_difference_limit!(input, model, formulation::ACFormulation
     return nothing
 end
 
-function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
+function power_balance!(input, model, formulation::ACFormulation, ::Type{ModelBuild})
     n = num_buses(input)
     n_g = num_generators(input)
     n_l = num_loads(input)
@@ -104,6 +104,16 @@ function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
     P_inj_from, P_inj_to = model[:P_inj_from], model[:P_inj_to]
     Q_inj_from, Q_inj_to = model[:Q_inj_from], model[:Q_inj_to]
     Pf, Pt, Qf, Qt = model[:Pf], model[:Pt], model[:Qf], model[:Qt]
+
+    # the fictitious reactive injection of each bus, which is zero everywhere except at the buses
+    # that get reactive balance slacks
+    Q_violation = zeros(JuMP.AffExpr, n)
+    if minimizes_reactive_balance_violation(formulation)
+        Q_deficit, Q_surplus = model[:Q_deficit], model[:Q_surplus]
+        for i in variable_tap_buses(input)
+            Q_violation[i] = Q_deficit[i] - Q_surplus[i]
+        end
+    end
 
     @constraint(
         model,
@@ -120,7 +130,8 @@ function power_balance!(input, model, ::ACFormulation, ::Type{ModelBuild})
         model,
         reactive_power_balance[i in 1:n],
         sum(Qg[g] for g in 1:n_g if generator_bus_idx(input, g) == i; init = 0.0) -
-        sum(load_reactive_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) ==
+        sum(load_reactive_power(input, l) for l in 1:n_l if load_bus_idx(input, l) == i; init = 0.0) +
+        Q_violation[i] ==
         sum(Qf[k] for k in 1:n_dc if dcline_from_bus_idx(input, k) == i; init = 0.0) +
         sum(Qt[k] for k in 1:n_dc if dcline_to_bus_idx(input, k) == i; init = 0.0) +
         sum(Q_inj_from[k] for k in 1:n_branches if branch_from_bus_idx(input, k) == i; init = 0.0) +
