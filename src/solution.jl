@@ -73,7 +73,7 @@ Evaluate the active and reactive power leaving each terminal of every branch for
 state, using the fixed tap ratio of each branch. Returns the vectors `(P_from, P_to, Q_from, Q_to)`.
 """
 function ac_branch_flows(input, V, angle)
-    n_branches = num_branches(input)
+    n_branches = PSD.num_branches(input)
     P_from = zeros(n_branches)
     P_to = zeros(n_branches)
     Q_from = zeros(n_branches)
@@ -97,11 +97,11 @@ scheduled data, as the vectors `(P_from, P_to, Q_from, Q_to)`. This is what the 
 not dispatch the DC lines use.
 """
 function dcline_scheduled_flows(input)
-    n_dc = num_dclines(input)
-    P_from = [dcline_active_power(input, k) for k in 1:n_dc]
+    n_dc = PSD.num_dclines(input)
+    P_from = [PSD.dcline_active_power(input, k) for k in 1:n_dc]
     P_to = [-dcline_to_bus_active_power(input, k) for k in 1:n_dc]
-    Q_from = [dcline_reactive_power_from(input, k) for k in 1:n_dc]
-    Q_to = [dcline_reactive_power_to(input, k) for k in 1:n_dc]
+    Q_from = [PSD.dcline_reactive_power_from(input, k) for k in 1:n_dc]
+    Q_to = [PSD.dcline_reactive_power_to(input, k) for k in 1:n_dc]
     return P_from, P_to, Q_from, Q_to
 end
 
@@ -113,7 +113,8 @@ used by `dc_susceptance_matrix` and by the DC optimal power flow model.
 """
 function dc_branch_flows(input, angle)
     return [
-        (angle[branch_from_bus_idx(input, k)] - angle[branch_to_bus_idx(input, k)]) / branch_reactance(input, k)
-        for k in 1:num_branches(input)
+        (angle[PSD.branch_from_bus_idx(input, k)] - angle[PSD.branch_to_bus_idx(input, k)]) /
+        PSD.branch_reactance(input, k)
+        for k in 1:PSD.num_branches(input)
     ]
 end

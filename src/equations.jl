@@ -15,7 +15,8 @@ end
 # min/max tap ratios leave it some room. Used both to declare the JuMP tap variables and to pick the
 # transformers that get tap sensitivities.
 function branch_has_variable_tap(input, k::Int)
-    return branch_is_transformer(input, k) && branch_min_tap_ratio(input, k) != branch_max_tap_ratio(input, k)
+    return PSD.branch_is_transformer(input, k) &&
+           PSD.branch_min_tap_ratio(input, k) != PSD.branch_max_tap_ratio(input, k)
 end
 
 # per-branch admittance terms shared by active_injection/reactive_injection at both sides of a branch —
@@ -24,12 +25,12 @@ end
 # `tap` is taken as an argument (rather than read from `input`) so it can be either the branch's fixed
 # tap_ratio data or a JuMP tap variable, depending on the formulation.
 function branch_admittance_terms(input, k::Int, tap)
-    y = 1 / (branch_resistance(input, k) + im * branch_reactance(input, k))
+    y = 1 / (PSD.branch_resistance(input, k) + im * PSD.branch_reactance(input, k))
     g, b = real(y), imag(y)
-    shift = branch_phase_shift(input, k)
+    shift = PSD.branch_phase_shift(input, k)
     cos_shift, sin_shift = cos(shift), sin(shift)
-    g_sh = branch_shunt_conductance(input, k)
-    b_sh = branch_shunt_susceptance(input, k)
+    g_sh = PSD.branch_shunt_conductance(input, k)
+    b_sh = PSD.branch_shunt_susceptance(input, k)
 
     # Matpower/PowerModels convention (see Branch.tap_ratio's docstring): tap^2 divides the whole
     # from-bus self admittance, shunt included, and the to-bus side is unscaled.
@@ -76,33 +77,33 @@ end
 
 # convenience forms that compute branch_admittance_terms internally, for standalone/one-off use
 # (e.g. tests) where reusing terms across multiple calls doesn't matter
-function active_injection(input, k::Int, V, angle, side::Symbol, tap = branch_tap_ratio(input, k))
+function active_injection(input, k::Int, V, angle, side::Symbol, tap = PSD.branch_tap_ratio(input, k))
     terms = branch_admittance_terms(input, k, tap)
-    return active_injection(V, angle, branch_from_bus_idx(input, k), branch_to_bus_idx(input, k), side, terms)
+    return active_injection(V, angle, PSD.branch_from_bus_idx(input, k), PSD.branch_to_bus_idx(input, k), side, terms)
 end
 
-function reactive_injection(input, k::Int, V, angle, side::Symbol, tap = branch_tap_ratio(input, k))
+function reactive_injection(input, k::Int, V, angle, side::Symbol, tap = PSD.branch_tap_ratio(input, k))
     terms = branch_admittance_terms(input, k, tap)
-    return reactive_injection(V, angle, branch_from_bus_idx(input, k), branch_to_bus_idx(input, k), side, terms)
+    return reactive_injection(V, angle, PSD.branch_from_bus_idx(input, k), PSD.branch_to_bus_idx(input, k), side, terms)
 end
 
 function bus_active_power_injection(input, i::Int)
     total = 0.0
-    for g in 1:num_generators(input)
-        if generator_bus_idx(input, g) == i
-            total += generator_active_power(input, g)
+    for g in 1:PSD.num_generators(input)
+        if PSD.generator_bus_idx(input, g) == i
+            total += PSD.generator_active_power(input, g)
         end
     end
-    for l in 1:num_loads(input)
-        if load_bus_idx(input, l) == i
-            total -= load_active_power(input, l)
+    for l in 1:PSD.num_loads(input)
+        if PSD.load_bus_idx(input, l) == i
+            total -= PSD.load_active_power(input, l)
         end
     end
-    for k in 1:num_dclines(input)
-        if dcline_from_bus_idx(input, k) == i
-            total -= dcline_active_power(input, k)
+    for k in 1:PSD.num_dclines(input)
+        if PSD.dcline_from_bus_idx(input, k) == i
+            total -= PSD.dcline_active_power(input, k)
         end
-        if dcline_to_bus_idx(input, k) == i
+        if PSD.dcline_to_bus_idx(input, k) == i
             total += dcline_to_bus_active_power(input, k)
         end
     end
@@ -111,23 +112,23 @@ end
 
 function bus_reactive_power_injection(input, i::Int)
     total = 0.0
-    for g in 1:num_generators(input)
-        if generator_bus_idx(input, g) == i
-            total += generator_reactive_power(input, g)
+    for g in 1:PSD.num_generators(input)
+        if PSD.generator_bus_idx(input, g) == i
+            total += PSD.generator_reactive_power(input, g)
         end
     end
-    for l in 1:num_loads(input)
-        if load_bus_idx(input, l) == i
-            total -= load_reactive_power(input, l)
+    for l in 1:PSD.num_loads(input)
+        if PSD.load_bus_idx(input, l) == i
+            total -= PSD.load_reactive_power(input, l)
         end
     end
     # the DC line data is the reactive power leaving the bus into the line at each terminal
-    for k in 1:num_dclines(input)
-        if dcline_from_bus_idx(input, k) == i
-            total -= dcline_reactive_power_from(input, k)
+    for k in 1:PSD.num_dclines(input)
+        if PSD.dcline_from_bus_idx(input, k) == i
+            total -= PSD.dcline_reactive_power_from(input, k)
         end
-        if dcline_to_bus_idx(input, k) == i
-            total -= dcline_reactive_power_to(input, k)
+        if PSD.dcline_to_bus_idx(input, k) == i
+            total -= PSD.dcline_reactive_power_to(input, k)
         end
     end
     return total
@@ -136,19 +137,19 @@ end
 # active power arriving at the to-bus terminal of a DC line, after the linear loss model
 # (constant + proportional to the from-bus flow) is applied to the scheduled from-bus flow
 function dcline_to_bus_active_power(input, k::Int)
-    Pf = dcline_active_power(input, k)
-    return Pf - (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf)
+    Pf = PSD.dcline_active_power(input, k)
+    return Pf - (PSD.dcline_constant_loss(input, k) + PSD.dcline_loss_coefficient(input, k) * Pf)
 end
 
 # textbook DC power flow approximation: resistance, shunt elements, tap ratio and phase shift are ignored
 function dc_susceptance_matrix(input)
-    n = num_buses(input)
+    n = PSD.num_buses(input)
     B = zeros(n, n)
 
-    for i in 1:num_branches(input)
-        from = branch_from_bus_idx(input, i)
-        to = branch_to_bus_idx(input, i)
-        b = 1 / branch_reactance(input, i)
+    for i in 1:PSD.num_branches(input)
+        from = PSD.branch_from_bus_idx(input, i)
+        to = PSD.branch_to_bus_idx(input, i)
+        b = 1 / PSD.branch_reactance(input, i)
 
         B[from, from] += b
         B[to, to] += b

@@ -1,11 +1,13 @@
-using PowerModels, PowerFlow, PowerFlow.PowerSystemData
+using PowerModels
+import PowerFlow as PF
+import PowerSystemData as PSD
 using JuMP, Ipopt, HiGHS
 
 path = raw"D:\codes\PowerFlowExperiments\pglib_benchmark\pglib-opf\pglib_opf_case30_ieee.m"
 PowerModels.silence()
 pm_data = PowerModels.parse_file(path)
 
-inputs = PowerSystemData.from_powermodels(pm_data)
+inputs = PSD.from_powermodels(pm_data)
 
 transformers = [
     11,
@@ -34,14 +36,14 @@ end
 
 # Run DCOPF
 model = JuMP.Model(HiGHS.Optimizer)
-PowerFlow.dc_model!(inputs, model, PowerFlow.ModelBuild)
+PF.dc_model!(inputs, model, PF.ModelBuild)
 JuMP.optimize!(model)
-dc_sol = PowerFlow.extract_dc_solution(model)
+dc_sol = PF.extract_dc_solution(model)
 
 # Update generation bounds based on DCOPF solution
 for (i, gen) in enumerate(inputs.static.generators)
     bus_idx = gen.bus_idx
-    if inputs.static.buses[bus_idx].type == PowerFlow.BusType.Slack
+    if inputs.static.buses[bus_idx].type == PSD.BusType.Slack
         continue
     end
     Pg = dc_sol.active_power_generation[i]
@@ -50,9 +52,9 @@ for (i, gen) in enumerate(inputs.static.generators)
 end
 
 # Run ACOPF 
-formulation = PowerFlow.ACOPFMinReactiveBalanceViolationFormulation()
+formulation = PF.ACOPFMinReactiveBalanceViolationFormulation()
 model = JuMP.Model(Ipopt.Optimizer)
 set_attribute(model, "max_iter", 300)
-PowerFlow.ac_model!(inputs, model, formulation, PowerFlow.ModelBuild)
+PF.ac_model!(inputs, model, formulation, PF.ModelBuild)
 JuMP.optimize!(model)
-ac_feasibility_sol = PowerFlow.extract_ac_solution(model)
+ac_feasibility_sol = PF.extract_ac_solution(model)

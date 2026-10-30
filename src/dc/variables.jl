@@ -1,11 +1,11 @@
 function angle_variables!(input, model, ::Type{ModelBuild})
-    n = num_buses(input)
+    n = PSD.num_buses(input)
 
-    @variable(model, angle[i in 1:n], start = bus_voltage_angle(input, i))
+    @variable(model, angle[i in 1:n], start = PSD.bus_voltage_angle(input, i))
 
     for i in 1:n
-        if bus_type(input, i) == BusType.Slack
-            JuMP.fix(angle[i], bus_voltage_angle(input, i); force = true)
+        if PSD.bus_type(input, i) == PSD.BusType.Slack
+            JuMP.fix(angle[i], PSD.bus_voltage_angle(input, i); force = true)
         end
     end
 
@@ -13,11 +13,11 @@ function angle_variables!(input, model, ::Type{ModelBuild})
 end
 
 function generator_variables!(input, model, ::Type{ModelBuild})
-    n_g = num_generators(input)
+    n_g = PSD.num_generators(input)
 
     @variable(
         model,
-        generator_min_active_power(input, g) <= Pg[g in 1:n_g] <= generator_max_active_power(input, g),
+        PSD.generator_min_active_power(input, g) <= Pg[g in 1:n_g] <= PSD.generator_max_active_power(input, g),
         # start = generator_active_power(input, g),
     )
 
@@ -29,20 +29,20 @@ end
 # As in the AC model, Pf and Pt are the power leaving the AC bus at each terminal, so Pt is minus
 # what arrives at the to-bus.
 function dcline_variables!(input, model, ::Type{ModelBuild})
-    n_dc = num_dclines(input)
+    n_dc = PSD.num_dclines(input)
 
     @variable(
         model,
         Pf[k in 1:n_dc],
-        lower_bound = -dcline_max_flow_to_from(input, k),
-        upper_bound = dcline_max_flow_from_to(input, k),
+        lower_bound = -PSD.dcline_max_flow_to_from(input, k),
+        upper_bound = PSD.dcline_max_flow_from_to(input, k),
         # start = dcline_active_power(input, k),
     )
 
     @expression(
         model,
         Pt[k in 1:n_dc],
-        -Pf[k] + (dcline_constant_loss(input, k) + dcline_loss_coefficient(input, k) * Pf[k])
+        -Pf[k] + (PSD.dcline_constant_loss(input, k) + PSD.dcline_loss_coefficient(input, k) * Pf[k])
     )
 
     return nothing

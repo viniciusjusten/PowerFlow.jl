@@ -1,4 +1,6 @@
-using PowerModels, PowerFlow, PowerFlow.PowerSystemData
+using PowerModels
+import PowerFlow as PF
+import PowerSystemData as PSD
 using JuMP, Ipopt, Printf
 
 const CASE_PATH = joinpath(@__DIR__, "case30_dcline.m")
@@ -34,8 +36,8 @@ difference in each bus, generator and branch quantity, and every DC line quantit
 All values are in per unit and every flow is the power leaving the AC bus at that terminal.
 """
 function compare(pm_data, label)
-    input = PowerSystemData.from_powermodels(pm_data)
-    pf_sol = PowerFlow.run_acopf(input, PowerFlow.ACOPFFormulation())
+    input = PSD.from_powermodels(pm_data)
+    pf_sol = PF.run_acopf(input, PF.ACOPFFormulation())
     pm_result = solve_powermodels(pm_data)
     pm_sol = pm_result["solution"]
 

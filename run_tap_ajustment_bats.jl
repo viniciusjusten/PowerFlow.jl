@@ -1,8 +1,10 @@
-using PowerModels, PowerFlow, PowerFlow.PowerSystemData
+using PowerModels
+import PowerFlow as PF
+import PowerSystemData as PSD
 using JuMP, Ipopt, HiGHS, HSL_jll
 
 function solve_min_reactive_violation(inputs)
-    formulation = PowerFlow.ACOPFMinReactiveBalanceViolationFormulation()
+    formulation = PF.ACOPFMinReactiveBalanceViolationFormulation()
     opt = JuMP.optimizer_with_attributes(
         Ipopt.Optimizer,
         "max_iter" => 300,
@@ -12,13 +14,13 @@ function solve_min_reactive_violation(inputs)
     model = JuMP.Model(opt)
     JuMP.set_silent(model)
     set_attribute(model, "max_iter", 300)
-    PowerFlow.ac_model!(inputs, model, formulation, PowerFlow.ModelBuild)
+    PF.ac_model!(inputs, model, formulation, PF.ModelBuild)
     JuMP.optimize!(model)
 
-    solution = PowerFlow.extract_ac_solution(model)
+    solution = PF.extract_ac_solution(model)
     Q_deficit = Dict{Int, Float64}()
     Q_surplus = Dict{Int, Float64}()
-    for i in PowerFlow.variable_tap_buses(inputs)
+    for i in PF.variable_tap_buses(inputs)
         Q_deficit[i] = JuMP.value(model[:Q_deficit][i])
         Q_surplus[i] = JuMP.value(model[:Q_surplus][i])
     end
@@ -26,7 +28,7 @@ function solve_min_reactive_violation(inputs)
     return solution, JuMP.termination_status(model), Q_deficit, Q_surplus
 end
 
-function terminal_reactive_sensitivity(s::TapSensitivity, bus)
+function terminal_reactive_sensitivity(s::PF.TapSensitivity, bus)
     if bus == s.to_bus_idx
         return s.dQ_to_dtap
     end
@@ -65,9 +67,9 @@ end
 
 function variable_taps(inputs)
     taps = Dict{Int, Float64}()
-    for k in 1:num_branches(inputs)
-        if PowerFlow.branch_has_variable_tap(inputs, k)
-            taps[k] = branch_tap_ratio(inputs, k)
+    for k in 1:PSD.num_branches(inputs)
+        if PF.branch_has_variable_tap(inputs, k)
+            taps[k] = PSD.branch_tap_ratio(inputs, k)
         end
     end
     return taps
@@ -107,18 +109,18 @@ end
 function append_iteration(violations_path, taps_path, iteration, inputs, Q_deficit, Q_surplus)
     open(violations_path, "a") do io
         for i in sort!(collect(keys(Q_deficit)))
-            println(io, "$iteration,$i,$(bus_name(inputs, i)),$(Q_deficit[i]),$(Q_surplus[i])")
+            println(io, "$iteration,$i,$(PSD.bus_name(inputs, i)),$(Q_deficit[i]),$(Q_surplus[i])")
         end
     end
     open(taps_path, "a") do io
-        for k in 1:num_branches(inputs)
+        for k in 1:PSD.num_branches(inputs)
             if !PowerFlow.branch_has_variable_tap(inputs, k)
                 continue
             end
             println(
                 io,
-                "$iteration,$k,$(branch_name(inputs, k)),$(branch_from_bus_idx(inputs, k))," *
-                "$(branch_to_bus_idx(inputs, k)),$(branch_tap_ratio(inputs, k))",
+                "$iteration,$k,$(PSD.branch_name(inputs, k)),$(PSD.branch_from_bus_idx(inputs, k))," *
+                "$(PSD.branch_to_bus_idx(inputs, k)),$(PSD.branch_tap_ratio(inputs, k))",
             )
         end
     end
@@ -166,8 +168,8 @@ function run_tap_adjustment!(
     end
 
     # the Newton steps only change when a trial is accepted, so they are kept between rejections
-    sensitivities = PowerFlow.build_tap_sensitivities(inputs, accepted_solution)
-    reactive_power_tap_derivatives!(sensitivities, inputs)
+    sensitivities = PF.build_tap_sensitivities(inputs, accepted_solution)
+    PF.reactive_power_tap_derivatives!(sensitivities, inputs)
     steps = newton_tap_steps(sensitivities, Q_deficit, Q_surplus, tolerance)
 
     step_size = 1.0
@@ -220,8 +222,8 @@ function run_tap_adjustment!(
                 break
             end
 
-            sensitivities = PowerFlow.build_tap_sensitivities(inputs, accepted_solution)
-            reactive_power_tap_derivatives!(sensitivities, inputs)
+            sensitivities = PF.build_tap_sensitivities(inputs, accepted_solution)
+            PF.reactive_power_tap_derivatives!(sensitivities, inputs)
             steps = newton_tap_steps(sensitivities, Q_deficit, Q_surplus, tolerance)
         else
             step_size /= 2
@@ -244,14 +246,14 @@ include("run_bats_tap.jl")
 
 # Run DCOPF
 model = JuMP.Model(HiGHS.Optimizer)
-PowerFlow.dc_model!(inputs, model, PowerFlow.ModelBuild)
+PF.dc_model!(inputs, model, PF.ModelBuild)
 JuMP.optimize!(model)
-dc_sol = PowerFlow.extract_dc_solution(model)
+dc_sol = PF.extract_dc_solution(model)
 
 # Update generation bounds based on DCOPF solution
 for (i, gen) in enumerate(inputs.static.generators)
     bus_idx = gen.bus_idx
-    if inputs.static.buses[bus_idx].type == PowerFlow.BusType.Slack
+    if inputs.static.buses[bus_idx].type == PSD.BusType.Slack
         continue
     end
     Pg = dc_sol.active_power_generation[i]

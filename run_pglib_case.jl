@@ -1,4 +1,6 @@
-using PowerModels, PowerFlow, PowerFlow.PowerSystemData
+using PowerModels
+import PowerFlow as PF
+import PowerSystemData as PSD
 
 # path = raw"D:\codes\PowerFlowExperiments\pglib_benchmark\pglib-opf\pglib_opf_case30_ieee.m"
 path = raw"D:\codes\PowerFlow.jl\case_hour1_scenario1.m"
@@ -11,5 +13,5 @@ pm_data = PowerModels.parse_file(path)
 PowerModels.select_largest_component!(pm_data)
 PowerModels.propagate_topology_status!(pm_data)
 
-inputs = PowerSystemData.from_powermodels(pm_data)
-sol = PowerFlow.run_acopf(inputs, PowerFlow.ACOPFFormulation())
+inputs = PSD.from_powermodels(pm_data)
+sol = PF.run_acopf(inputs, PF.ACOPFFormulation())

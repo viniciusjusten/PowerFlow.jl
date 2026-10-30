@@ -12,19 +12,19 @@ struct ACPFStandardProblem
 end
 
 function build_acpf_standard_problem(input)
-    n = num_buses(input)
-    Ybus = PowerSystemData.ybus(input)
+    n = PSD.num_buses(input)
+    Ybus = PSD.ybus(input)
     G, B = real.(Ybus), imag.(Ybus)
 
-    slack_idx = findfirst(i -> bus_type(input, i) == BusType.Slack, 1:n)
+    slack_idx = findfirst(i -> PSD.bus_type(input, i) == PSD.BusType.Slack, 1:n)
     non_slack_buses = [i for i in 1:n if i != slack_idx]
-    pq_buses = [i for i in 1:n if bus_type(input, i) == BusType.PQ]
+    pq_buses = [i for i in 1:n if PSD.bus_type(input, i) == PSD.BusType.PQ]
 
-    voltage_setpoint = [bus_voltage(input, i) for i in 1:n]
-    for g in 1:num_generators(input)
-        bus_idx = generator_bus_idx(input, g)
-        if bus_type(input, bus_idx) in (BusType.PV, BusType.Slack)
-            voltage_setpoint[bus_idx] = generator_voltage_setpoint(input, g)
+    voltage_setpoint = [PSD.bus_voltage(input, i) for i in 1:n]
+    for g in 1:PSD.num_generators(input)
+        bus_idx = PSD.generator_bus_idx(input, g)
+        if PSD.bus_type(input, bus_idx) in (PSD.BusType.PV, PSD.BusType.Slack)
+            voltage_setpoint[bus_idx] = PSD.generator_voltage_setpoint(input, g)
         end
     end
 
@@ -36,7 +36,7 @@ function build_acpf_standard_problem(input)
         G,
         B,
         slack_idx,
-        bus_voltage_angle(input, slack_idx),
+        PSD.bus_voltage_angle(input, slack_idx),
         non_slack_buses,
         pq_buses,
         voltage_setpoint,
@@ -78,13 +78,16 @@ end
 
 # assumes at most one generator per PV/Slack bus — a documented simplification for now
 function generator_reactive_power_output(input, g::Int, V, angle, G, B)
-    bus_idx = generator_bus_idx(input, g)
-    if bus_type(input, bus_idx) == BusType.PQ
-        return generator_reactive_power(input, g)
+    bus_idx = PSD.generator_bus_idx(input, g)
+    if PSD.bus_type(input, bus_idx) == PSD.BusType.PQ
+        return PSD.generator_reactive_power(input, g)
     end
 
     load_q =
-        sum(load_reactive_power(input, l) for l in 1:num_loads(input) if load_bus_idx(input, l) == bus_idx; init = 0.0)
+        sum(
+            PSD.load_reactive_power(input, l) for l in 1:PSD.num_loads(input) if PSD.load_bus_idx(input, l) == bus_idx;
+            init = 0.0,
+        )
     return reactive_power_calc(bus_idx, V, angle, G, B) + load_q
 end
 
@@ -95,10 +98,10 @@ function run_acpf(input, ::ACPFFormulation)
 
     x0 = zeros(n_non_slack + n_pq)
     for (k, i) in enumerate(p.non_slack_buses)
-        x0[k] = bus_voltage_angle(input, i)
+        x0[k] = PSD.bus_voltage_angle(input, i)
     end
     for (k, i) in enumerate(p.pq_buses)
-        x0[n_non_slack + k] = bus_voltage(input, i)
+        x0[n_non_slack + k] = PSD.bus_voltage(input, i)
     end
 
     f = NonlinearSolve.NonlinearFunction(
@@ -109,8 +112,8 @@ function run_acpf(input, ::ACPFFormulation)
     sol = NonlinearSolve.solve(prob, NonlinearSolve.NewtonRaphson(; linsolve = LinearSolve.KrylovJL_GMRES())) # , show_trace = Val(true), trace_level = TraceAll(), store_trace = Val(true)
 
     V, angle = unpack_state(sol.u, p)
-    Pg = [generator_active_power(input, g) for g in 1:num_generators(input)]
-    Qg = [generator_reactive_power_output(input, g, V, angle, p.G, p.B) for g in 1:num_generators(input)]
+    Pg = [PSD.generator_active_power(input, g) for g in 1:PSD.num_generators(input)]
+    Qg = [generator_reactive_power_output(input, g, V, angle, p.G, p.B) for g in 1:PSD.num_generators(input)]
 
     P_from, P_to, Q_from, Q_to = ac_branch_flows(input, V, angle)
     Pf, Pt, Qf, Qt = dcline_scheduled_flows(input)

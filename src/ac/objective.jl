@@ -1,6 +1,6 @@
 function objective_function!(input, model, ::Union{ACOPFFormulation, ACOPFTapFormulation}, ::Type{ModelBuild})
     Pg = model[:Pg]
-    @objective(model, Min, sum(generator_cost(input, g) * Pg[g] for g in 1:num_generators(input)))
+    @objective(model, Min, sum(PSD.generator_cost(input, g) * Pg[g] for g in 1:PSD.num_generators(input)))
     return nothing
 end
 
@@ -9,7 +9,7 @@ function objective_function!(input, model, ::ACOPFMinRedispatchFormulation, ::Ty
     @objective(
         model,
         Min,
-        sum((Pg[g] - generator_active_power(input, g))^2 for g in 1:num_generators(input))
+        sum((Pg[g] - PSD.generator_active_power(input, g))^2 for g in 1:PSD.num_generators(input))
     )
     return nothing
 end
@@ -25,9 +25,9 @@ function objective_function!(input, model, ::ACPFPmisVmisFormulation, ::Type{Mod
         model,
         Min,
         sum(
-            (Pg[g] - generator_active_power(input, g))^2 +
-            (V[generator_bus_idx(input, g)] - generator_voltage_setpoint(input, g))^2 for
-            g in 1:num_generators(input)
+            (Pg[g] - PSD.generator_active_power(input, g))^2 +
+            (V[PSD.generator_bus_idx(input, g)] - PSD.generator_voltage_setpoint(input, g))^2 for
+            g in 1:PSD.num_generators(input)
         )
     )
     return nothing

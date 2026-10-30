@@ -15,13 +15,13 @@ operating point.
 function build_inputs_from_results(input, solution::ACSolution; tap_ratio = nothing)
     new_input = deepcopy(input)
 
-    for i in 1:num_buses(new_input)
+    for i in 1:PSD.num_buses(new_input)
         bus = new_input.static.buses[i]
         bus.voltage = solution.voltage[i]
         bus.voltage_angle = solution.voltage_angle[i]
     end
 
-    for g in 1:num_generators(new_input)
+    for g in 1:PSD.num_generators(new_input)
         generator = new_input.static.generators[g]
         generator.active_power = solution.active_power_generation[g]
         generator.reactive_power = solution.reactive_power_generation[g]
@@ -29,7 +29,7 @@ function build_inputs_from_results(input, solution::ACSolution; tap_ratio = noth
     end
 
     if tap_ratio !== nothing
-        for k in 1:num_branches(new_input)
+        for k in 1:PSD.num_branches(new_input)
             new_input.static.branches[k].tap_ratio = tap_ratio[k]
         end
     end

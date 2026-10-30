@@ -1,4 +1,6 @@
-using PowerModels, PowerFlow, PowerFlow.PowerSystemData
+using PowerModels
+import PowerFlow as PF
+import PowerSystemData as PSD
 
 function read_tap_limits(path)
     lines = filter(!isempty, strip.(readlines(path)))
@@ -72,7 +74,7 @@ pm_data = PowerModels.parse_file(case_path)
 PowerModels.select_largest_component!(pm_data)
 PowerModels.propagate_topology_status!(pm_data)
 
-inputs = PowerSystemData.from_powermodels(pm_data)
+inputs = PSD.from_powermodels(pm_data)
 
 updated, unmatched = update_tap_limits_from_csv!(inputs, tap_csv_path)
 println("Updated the tap limits of $(length(updated)) transformers")

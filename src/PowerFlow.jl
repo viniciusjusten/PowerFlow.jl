@@ -1,6 +1,6 @@
 module PowerFlow
 
-using PowerSystemData
+import PowerSystemData as PSD
 using JuMP
 using Ipopt
 using HiGHS

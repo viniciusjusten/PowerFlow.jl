@@ -73,22 +73,22 @@ function build_tap_sensitivities(input, solution::ACSolution)
     V, angle = solution.voltage, solution.voltage_angle
 
     sensitivities = TapSensitivity[]
-    for k in 1:num_branches(input)
+    for k in 1:PSD.num_branches(input)
         if !branch_has_variable_tap(input, k)
             continue
         end
 
-        from = branch_from_bus_idx(input, k)
-        to = branch_to_bus_idx(input, k)
+        from = PSD.branch_from_bus_idx(input, k)
+        to = PSD.branch_to_bus_idx(input, k)
 
         push!(
             sensitivities,
             TapSensitivity(;
                 branch_idx = k,
-                branch_name = branch_name(input, k),
+                branch_name = PSD.branch_name(input, k),
                 from_bus_idx = from,
                 to_bus_idx = to,
-                tap_ratio = branch_tap_ratio(input, k),
+                tap_ratio = PSD.branch_tap_ratio(input, k),
                 voltage_from = V[from],
                 voltage_to = V[to],
                 angle_difference = angle[from] - angle[to],
@@ -125,9 +125,9 @@ zero phase shift, the only case `branch_admittance_terms` and these formulas agr
 function reactive_power_tap_derivatives!(sensitivities, input)
     for s in sensitivities
         k = s.branch_idx
-        y = 1 / (branch_resistance(input, k) + im * branch_reactance(input, k))
+        y = 1 / (PSD.branch_resistance(input, k) + im * PSD.branch_reactance(input, k))
         g_s, b_s = real(y), imag(y)
-        b_charging = branch_shunt_susceptance(input, k) # already the per-side b_c / 2
+        b_charging = PSD.branch_shunt_susceptance(input, k) # already the per-side b_c / 2
 
         tap = s.tap_ratio
         V_from, V_to = s.voltage_from, s.voltage_to
@@ -161,7 +161,7 @@ moves the terminal's reactive generation instead of its voltage. Requires
 function voltage_tap_derivatives!(sensitivities, input)
     for s in sensitivities
         terminals = (s.from_bus_idx, s.to_bus_idx)
-        free = [pos for (pos, bus) in enumerate(terminals) if bus_type(input, bus) == BusType.PQ]
+        free = [pos for (pos, bus) in enumerate(terminals) if PSD.bus_type(input, bus) == PSD.BusType.PQ]
 
         dV_dtap = zeros(2)
         if !isempty(free)
