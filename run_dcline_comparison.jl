@@ -76,7 +76,14 @@ function compare(pm_data, label)
     for (name, pf_values, pm_key) in dcline_pairs
         pm_values = sorted_values(pm_sol["dcline"], pm_key)
         for k in eachindex(pf_values)
-            @printf("%s[%d]     % .6f     % .6f     % .2e\n", name, k, pf_values[k], pm_values[k], pf_values[k] - pm_values[k])
+            @printf(
+                "%s[%d]     % .6f     % .6f     % .2e\n",
+                name,
+                k,
+                pf_values[k],
+                pm_values[k],
+                pf_values[k] - pm_values[k]
+            )
         end
     end
     println()

@@ -56,7 +56,7 @@ function unpack_state(x, p::ACPFStandardProblem)
         angle[i] = x[k]
     end
     for (k, i) in enumerate(p.pq_buses)
-        V[i] = x[n_non_slack+k]
+        V[i] = x[n_non_slack + k]
     end
 
     return V, angle
@@ -70,7 +70,7 @@ function power_flow_residual!(res, x, p::ACPFStandardProblem)
         res[k] = active_power_calc(i, V, angle, p.G, p.B) - p.Pspec[i]
     end
     for (k, i) in enumerate(p.pq_buses)
-        res[n_non_slack+k] = reactive_power_calc(i, V, angle, p.G, p.B) - p.Qspec[i]
+        res[n_non_slack + k] = reactive_power_calc(i, V, angle, p.G, p.B) - p.Qspec[i]
     end
 
     return nothing
@@ -83,7 +83,8 @@ function generator_reactive_power_output(input, g::Int, V, angle, G, B)
         return generator_reactive_power(input, g)
     end
 
-    load_q = sum(load_reactive_power(input, l) for l in 1:num_loads(input) if load_bus_idx(input, l) == bus_idx; init = 0.0)
+    load_q =
+        sum(load_reactive_power(input, l) for l in 1:num_loads(input) if load_bus_idx(input, l) == bus_idx; init = 0.0)
     return reactive_power_calc(bus_idx, V, angle, G, B) + load_q
 end
 
@@ -97,10 +98,13 @@ function run_acpf(input, ::ACPFFormulation)
         x0[k] = bus_voltage_angle(input, i)
     end
     for (k, i) in enumerate(p.pq_buses)
-        x0[n_non_slack+k] = bus_voltage(input, i)
+        x0[n_non_slack + k] = bus_voltage(input, i)
     end
 
-    f = NonlinearSolve.NonlinearFunction(power_flow_residual!; sparsity = SparseConnectivityTracer.TracerSparsityDetector())
+    f = NonlinearSolve.NonlinearFunction(
+        power_flow_residual!;
+        sparsity = SparseConnectivityTracer.TracerSparsityDetector(),
+    )
     prob = NonlinearSolve.NonlinearProblem(f, x0, p)
     sol = NonlinearSolve.solve(prob, NonlinearSolve.NewtonRaphson(; linsolve = LinearSolve.KrylovJL_GMRES())) # , show_trace = Val(true), trace_level = TraceAll(), store_trace = Val(true)
 
